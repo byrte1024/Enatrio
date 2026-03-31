@@ -1,0 +1,202 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build Debug",
+            "type": "shell",
+            "command": "${workspaceFolder}\\build_wrapper.bat",
+            "args": [
+                "debug"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "detail": "Build project in debug mode with all source files"
+        },
+        {
+            "label": "Build Release",
+            "type": "shell",
+            "command": "${workspaceFolder}\\build_wrapper.bat",
+            "args": [
+                "release"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "detail": "Build project in release mode with optimizations"
+        },
+        {
+            "label": "Build and Run Debug",
+            "type": "shell",
+            "command": "C:\\msys64\\usr\\bin\\bash.exe",
+            "args": [
+                "--login",
+                "-c",
+                "cd /c/Users/User/repos/Enatrio && ./build.sh debug && ./build/debug/Enatrio.exe"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "detail": "Build in debug mode and run the executable"
+        },
+        {
+            "label": "Build and Run Release",
+            "type": "shell",
+            "command": "C:\\msys64\\usr\\bin\\bash.exe",
+            "args": [
+                "--login",
+                "-c",
+                "cd /c/Users/User/repos/Enatrio && ./build.sh release && ./build/release/Enatrio.exe"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "detail": "Build in release mode and run the executable"
+        },
+        {
+            "label": "Build Tests",
+            "type": "shell",
+            "command": "${workspaceFolder}\\build_wrapper.bat",
+            "args": [
+                "tests"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "build",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "detail": "Build project in test mode with INTESTING defined"
+        },
+        {
+            "label": "Build and Run Tests",
+            "type": "shell",
+            "command": "C:\\msys64\\usr\\bin\\bash.exe",
+            "args": [
+                "--login",
+                "-c",
+                "cd /c/Users/User/repos/Enatrio && ./build.sh tests && ./build/tests/Enatrio.exe"
+            ],
+            "group": "test",
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "presentation": {
+                "echo": true,
+                "reveal": "always",
+                "focus": false,
+                "panel": "shared",
+                "showReuseMessage": true,
+                "clear": false
+            },
+            "detail": "Build and run the test suite"
+        },
+        {
+            "label": "Clean Build",
+            "type": "shell",
+            "command": "C:\\msys64\\usr\\bin\\bash.exe",
+            "args": [
+                "--login",
+                "-c",
+                "cd /c/Users/User/repos/Enatrio && rm -rf build"
+            ],
+            "problemMatcher": [],
+            "detail": "Remove all build artifacts"
+        },
+        {
+            "label": "Preprocess Current File",
+            "type": "shell",
+            "command": "C:\\msys64\\ucrt64\\bin\\gcc.exe",
+            "args": [
+                "-E",
+                "-P",
+                "-std=c23",
+                "${file}",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}.i"
+            ],
+            "problemMatcher": [],
+            "detail": "Show preprocessor output (macros expanded) - creates .i file"
+        },
+        {
+            "label": "Preprocess Current File (with line markers)",
+            "type": "shell",
+            "command": "C:\\msys64\\ucrt64\\bin\\gcc.exe",
+            "args": [
+                "-E",
+                "-std=c23",
+                "${file}",
+                "-o",
+                "${fileDirname}/${fileBasenameNoExtension}.i"
+            ],
+            "problemMatcher": [],
+            "detail": "Show preprocessor output with line markers - creates .i file"
+        },
+        {
+            "label": "Generate compile_commands.json",
+            "type": "shell",
+            "command": "C:\\msys64\\usr\\bin\\bash.exe",
+            "args": [
+                "--login",
+                "-c",
+                "cd /c/Users/User/repos/Enatrio && ./generate_compile_commands.sh"
+            ],
+            "problemMatcher": [],
+            "detail": "Generate compile_commands.json for clangd with C23 standard"
+        }
+    ]
+}
