@@ -2,4 +2,5 @@ build/
 *.log
 *.o
 *.exe
+lib/raylib/lib/
 .claude
