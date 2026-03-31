@@ -107,8 +107,8 @@ jobs:
           git checkout FETCH_HEAD
           cd /tmp/raylib-src/src
           make PLATFORM=PLATFORM_DESKTOP -j$(nproc)
-          mkdir -p lib/raylib/lib
-          cp libraylib.a lib/raylib/lib/libraylib.a
+          mkdir -p "$GITHUB_WORKSPACE/lib/raylib/lib"
+          cp libraylib.a "$GITHUB_WORKSPACE/lib/raylib/lib/libraylib.a"
 
       - name: Build app (debug)
         run: bash ./build.sh debug
