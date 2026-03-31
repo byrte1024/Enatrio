@@ -7,7 +7,7 @@ on:
     branches: [main]
 
 jobs:
-  build-and-test:
+  linux:
     runs-on: ubuntu-latest
 
     steps:
@@ -43,7 +43,10 @@ jobs:
       - name: Build raylib from source
         if: steps.cache-raylib.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git /tmp/raylib-src
+          git init /tmp/raylib-src
+          cd /tmp/raylib-src
+          git fetch --depth 1 https://github.com/raysan5/raylib.git c1ab645ca298a2801097931d1079b10ff7eb9df8
+          git checkout FETCH_HEAD
           cd /tmp/raylib-src/src
           make PLATFORM=PLATFORM_DESKTOP -j$(nproc)
           mkdir -p $GITHUB_WORKSPACE/lib/raylib/lib
@@ -70,4 +73,60 @@ jobs:
               echo "::error::Not all tests passed ($PASSED/$TOTAL)"
               exit 1
             fi
+          fi
+
+  windows:
+    runs-on: windows-latest
+
+    defaults:
+      run:
+        shell: msys2 {0}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup MSYS2
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          install: mingw-w64-ucrt-x86_64-gcc make
+
+      - name: Cache raylib
+        uses: actions/cache@v4
+        id: cache-raylib-win
+        with:
+          path: lib/raylib/lib
+          key: raylib-5.5-${{ runner.os }}
+
+      - name: Build raylib from source
+        if: steps.cache-raylib-win.outputs.cache-hit != 'true'
+        run: |
+          git init /tmp/raylib-src
+          cd /tmp/raylib-src
+          git fetch --depth 1 https://github.com/raysan5/raylib.git c1ab645ca298a2801097931d1079b10ff7eb9df8
+          git checkout FETCH_HEAD
+          cd /tmp/raylib-src/src
+          make PLATFORM=PLATFORM_DESKTOP -j$(nproc)
+          mkdir -p lib/raylib/lib
+          cp libraylib.a lib/raylib/lib/libraylib.a
+
+      - name: Build app (debug)
+        run: bash ./build.sh debug
+
+      - name: Build tests
+        run: bash ./build.sh tests
+
+      - name: Run tests
+        run: |
+          OUTPUT=$(./build/tests/Enatrio.exe 2>&1)
+          echo "$OUTPUT"
+          if echo "$OUTPUT" | grep -q "FAIL"; then
+            echo "::error::Tests failed"
+            exit 1
+          fi
+          PASSED=$(echo "$OUTPUT" | grep -oP 'Results: \K[0-9]+(?=/)')
+          TOTAL=$(echo "$OUTPUT" | grep -oP 'Results: [0-9]+/\K[0-9]+')
+          if [ "$PASSED" != "$TOTAL" ]; then
+            echo "::error::Not all tests passed ($PASSED/$TOTAL)"
+            exit 1
           fi
