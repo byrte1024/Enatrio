@@ -24,18 +24,25 @@ PROJECT_NAME="Enatrio"
 SRC_DIR="src"
 ASSETS_DIR="assets"
 
+# Pick C23 flag (GCC < 14 uses -std=c2x)
+if $GCC -std=c23 -x c -E /dev/null > /dev/null 2>&1; then
+    C_STD="-std=c23"
+else
+    C_STD="-std=c2x"
+fi
+
 # Set build configuration
 if [ "$BUILD_TYPE" = "release" ]; then
     BUILD_DIR="build/release"
-    CFLAGS="-std=c23 -O2 -DNDEBUG -DPROJECT_NAME=$PROJECT_NAME"
+    CFLAGS="$C_STD -O2 -DNDEBUG -DPROJECT_NAME=$PROJECT_NAME"
     echo "Building RELEASE configuration..."
 elif [ "$BUILD_TYPE" = "tests" ]; then
     BUILD_DIR="build/tests"
-    CFLAGS="-std=c23 -g3 -O0 -DDEBUG -DINTESTING -DPROJECT_NAME=$PROJECT_NAME"
+    CFLAGS="$C_STD -g3 -O0 -DDEBUG -DINTESTING -DPROJECT_NAME=$PROJECT_NAME"
     echo "Building TESTS configuration..."
 else
     BUILD_DIR="build/debug"
-    CFLAGS="-std=c23 -g3 -O0 -DDEBUG -DPROJECT_NAME=$PROJECT_NAME"
+    CFLAGS="$C_STD -g3 -O0 -DDEBUG -DPROJECT_NAME=$PROJECT_NAME"
     echo "Building DEBUG configuration..."
 fi
 
