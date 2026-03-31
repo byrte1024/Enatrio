@@ -11,10 +11,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Cache apt packages
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-apt
         with:
           path: ~/apt-cache
@@ -34,7 +34,7 @@ jobs:
           cp /var/cache/apt/archives/*.deb ~/apt-cache/ 2>/dev/null || true
 
       - name: Cache raylib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-raylib
         with:
           path: lib/raylib/lib
@@ -83,7 +83,7 @@ jobs:
         shell: msys2 {0}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Setup MSYS2
         uses: msys2/setup-msys2@v2
@@ -92,7 +92,7 @@ jobs:
           install: mingw-w64-ucrt-x86_64-gcc make git
 
       - name: Cache raylib
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         id: cache-raylib-win
         with:
           path: lib/raylib/lib
