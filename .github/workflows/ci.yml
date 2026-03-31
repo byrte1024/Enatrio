@@ -13,15 +13,35 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache apt packages
+        uses: actions/cache@v4
+        id: cache-apt
+        with:
+          path: ~/apt-cache
+          key: apt-deps-${{ runner.os }}
+
       - name: Install dependencies
         run: |
+          if [ -d ~/apt-cache ]; then
+            sudo cp -r ~/apt-cache/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+          fi
           sudo apt-get update
           sudo apt-get install -y gcc make cmake git \
             libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
             libxcursor-dev libxi-dev libxext-dev libwayland-dev \
             libxkbcommon-dev
+          mkdir -p ~/apt-cache
+          cp /var/cache/apt/archives/*.deb ~/apt-cache/ 2>/dev/null || true
+
+      - name: Cache raylib
+        uses: actions/cache@v4
+        id: cache-raylib
+        with:
+          path: lib/raylib/lib
+          key: raylib-5.5-${{ runner.os }}
 
       - name: Build raylib from source
+        if: steps.cache-raylib.outputs.cache-hit != 'true'
         run: |
           git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git /tmp/raylib-src
           cd /tmp/raylib-src/src
