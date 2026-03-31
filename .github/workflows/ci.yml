@@ -26,6 +26,7 @@ jobs:
           git clone --depth 1 --branch 5.5 https://github.com/raysan5/raylib.git /tmp/raylib-src
           cd /tmp/raylib-src/src
           make PLATFORM=PLATFORM_DESKTOP -j$(nproc)
+          mkdir -p $GITHUB_WORKSPACE/lib/raylib/lib
           cp libraylib.a $GITHUB_WORKSPACE/lib/raylib/lib/libraylib.a
 
       - name: Build app (debug)
