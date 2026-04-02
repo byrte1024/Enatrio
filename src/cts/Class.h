@@ -223,26 +223,47 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     return payload;
 }
 
-// Stores a value by copy into the payload. Any type, any size.
-//   Payload_SetValue(payload, "health", int, 100);
-#define Payload_SetValue(payload, str_key, type, value) do { \
-    type _psv_tmp = (value); \
-    UnsafeVariedHashMap_SSet((payload)->data, str_key, &_psv_tmp, sizeof(type)); \
-} while (0)
+// Stores raw bytes into the payload.
+//   Payload_Set(payload, "data", &my_struct, sizeof(MyStruct));
+#define Payload_Set(payload, str_key, value_ptr, value_size) \
+    UnsafeVariedHashMap_SSet((payload)->data, str_key, value_ptr, value_size)
 
-// Stores a pointer (void*) into the payload by copy.
-//   Payload_SetPointer(payload, "out", &result);
-#define Payload_SetPointer(payload, str_key, ptr) do { \
-    void *_pp_tmp = (ptr); \
-    UnsafeVariedHashMap_SSet((payload)->data, str_key, &_pp_tmp, sizeof(void*)); \
-} while (0)
+// Stores a typed value (takes the address for you via compound literal).
+//   Payload_SetValue(payload, "health", int, 100);
+#define Payload_SetValue(payload, str_key, type, value) \
+    Payload_Set(payload, str_key, &(type){value}, sizeof(type))
+
+// Returns a void* to the stored data, or NULL if not found.
+//   int *hp = (int*)Payload_Get(payload, "health");
+#define Payload_Get(payload, str_key) \
+    UnsafeVariedHashMap_SGet((payload)->data, str_key)
+
+// Dereferences the stored data as the given type.
+//   int hp = Payload_GetDeref(payload, "health", int);
+#define Payload_GetDeref(payload, str_key, type) \
+    UnsafeVariedHashMap_SGetDeref((payload)->data, str_key, type)
+
+// Returns 1 if the key exists, 0 otherwise.
+//   if (Payload_Has(payload, "health")) { ... }
+#define Payload_Has(payload, str_key) \
+    UnsafeVariedHashMap_SHas((payload)->data, str_key)
+
+// Returns the byte size of the stored value, or 0 if not found.
+//   uint32_t sz = Payload_GetSize(payload, "health");
+#define Payload_GetSize(payload, str_key) \
+    UnsafeVariedHashMap_SGetSize((payload)->data, str_key)
+
+// Removes a key from the payload. Returns 0 on success, -1 if not found.
+//   Payload_Remove(payload, "health");
+#define Payload_Remove(payload, str_key) \
+    UnsafeVariedHashMap_SRemove((payload)->data, str_key)
 
 // Creates a stack-local variable and stores a pointer to it in the payload.
 // The variable lives until the enclosing scope ends.
-//   Payload_SetLocalPointer(payload, "out", int, 0);
-#define Payload_SetLocalPointer(payload, str_key, type, value) \
+//   Payload_SetLocalValue(payload, "out", int, 0);
+#define Payload_SetLocalValue(payload, str_key, type, value) \
     type BAT2(_pslp_, __LINE__) = (value); \
-    Payload_SetPointer(payload, str_key, &BAT2(_pslp_, __LINE__))
+    Payload_SetValue(payload, str_key, void*, &BAT2(_pslp_, __LINE__))
 
 // ============================================================
 // Class definition macros
@@ -281,82 +302,59 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 //   MESSAGE_HANDLER_END()
 #define MESSAGE_HANDLER_END() }
 
-// Extracts a pointer from the payload dict.
-//   MH_EXTRACT_POINTER(Strength, float)
-// Expands to:
-// Extracts a pointer to the stored value (direct, value is in the map).
-//   MH_EXTRACT_POINTER(Strength, float)
-// Expands to:
-//   float* MH_Strength_Ptr = (float*)UnsafeVariedHashMap_SGet(payload->data, "Strength");
-#define MH_EXTRACT_POINTER(paramname, type) \
-    type* BAT3(MH_, paramname, _Ptr) = \
-        (type*)UnsafeVariedHashMap_SGet(payload->data, STR(paramname))
+// ---- Getters ----
 
-// Extracts a copy of the stored value.
-// Returns INVALID_PARAMS if the key has no data.
-//   MH_EXTRACT_VALUE(Strength, float)
-#define MH_EXTRACT_VALUE(paramname, type) \
-    type* BAT3(_mhev_, paramname, _ptr) = \
-        (type*)UnsafeVariedHashMap_SGet(payload->data, STR(paramname)); \
-    if (BAT3(_mhev_, paramname, _ptr) == NULL) { \
-        payload->result = MESSAGE_RESULT_INVALID_PARAMS; \
-        return; \
-    } \
-    type BAT3(MH_, paramname, _Val) = *BAT3(_mhev_, paramname, _ptr)
+// Returns a typed pointer to the stored value, or NULL if not found.
+//   float* ptr = MH_Get(Strength, float);
+#define MH_Get(paramname, type) \
+    ((type*)UnsafeVariedHashMap_SGet(payload->data, STR(paramname)))
 
-// Extracts a stored void* pointer and casts it to type*.
-// Use when the caller stored a pointer via Payload_SetPointer.
-//   MH_EXTRACT_STORED_PTR(out, int)
-// Gives: int* MH_out_Ptr = *(void**)data, cast to int*
-#define MH_EXTRACT_STORED_PTR(paramname, type) \
-    type* BAT3(MH_, paramname, _Ptr) = \
-        (type*)UnsafeVariedHashMap_SGetValue(payload->data, STR(paramname), void*)
+// Returns the stored value by copy (unsafe -- crashes if key missing).
+//   float val = MH_GetDeref(Strength, float);
+#define MH_GetDeref(paramname, type) \
+    UnsafeVariedHashMap_SGetDeref(payload->data, STR(paramname), type)
 
-// Checks that an extracted pointer is not NULL, returns INVALID_PARAMS if so.
-//   MH_REQUIRE_POINTER(Strength)
-#define MH_REQUIRE_POINTER(paramname) \
-    if (BAT3(MH_, paramname, _Ptr) == NULL) { \
-        payload->result = MESSAGE_RESULT_INVALID_PARAMS; \
-        return; \
-    }
+// ---- Setters ----
 
-// Bool expression: true if the key exists in the payload data.
-//   if (MH_HAS_KEY(Strength)) { ... }
-#define MH_HAS_KEY(paramname) \
+// Stores raw bytes into the payload data.
+//   MH_Set(result, &my_data, sizeof(my_data));
+#define MH_Set(paramname, value_ptr, value_size) \
+    UnsafeVariedHashMap_SSet(payload->data, STR(paramname), value_ptr, value_size)
+
+// Stores a typed value into the payload data (takes the address for you).
+//   int result = a + b;
+//   MH_SetValue(result, int, result);
+#define MH_SetValue(paramname, type, var) \
+    MH_Set(paramname, &(type){var}, sizeof(type))
+
+// ---- Checks ----
+
+// Bool expression: true if the key exists.
+//   if (MH_Has(Strength)) { ... }
+#define MH_Has(paramname) \
     (UnsafeVariedHashMap_SHas(payload->data, STR(paramname)))
 
-// Bool expression: true if the key exists and has non-NULL data.
-//   if (MH_HAS_VALID_PTR(Strength)) { ... }
-#define MH_HAS_VALID_PTR(paramname) \
-    (MH_HAS_KEY(paramname) && \
-     UnsafeVariedHashMap_SGet(payload->data, STR(paramname)) != NULL)
-
-// Checks that the payload has a key, returns MISSING_PARAMS if not.
-//   MH_REQUIRE_KEY(Strength)
-#define MH_REQUIRE_KEY(paramname) \
+// Fails with MISSING_PARAMS if the key does not exist.
+//   MH_Require(Strength);
+#define MH_Require(paramname) \
     if (!UnsafeVariedHashMap_SHas(payload->data, STR(paramname))) { \
         payload->result = MESSAGE_RESULT_MISSING_PARAMS; \
         return; \
     }
 
-// Extracts a pointer to stored value and requires the key.
-//   MH_REQUIRE_PARAM(Strength, float)
-#define MH_REQUIRE_PARAM(paramname, type) \
-    MH_REQUIRE_KEY(paramname) \
-    MH_EXTRACT_POINTER(paramname, type)
+// ---- Extractions (safe -- require + declare variable) ----
 
-// Extracts a value copy and requires the key.
-//   MH_REQUIRE_VALUE(Strength, float)
-#define MH_REQUIRE_VALUE(paramname, type) \
-    MH_REQUIRE_KEY(paramname) \
-    MH_EXTRACT_VALUE(paramname, type)
+// Requires key, then declares type* paramname = pointer to stored value.
+//   MH_Extract(Strength, float);  // declares: float* Strength
+#define MH_Extract(paramname, type) \
+    MH_Require(paramname) \
+    type* paramname = MH_Get(paramname, type)
 
-// Extracts a stored pointer and requires the key + non-NULL.
-//   MH_REQUIRE_STORED_PTR(out, int)
-#define MH_REQUIRE_STORED_PTR(paramname, type) \
-    MH_REQUIRE_KEY(paramname) \
-    MH_EXTRACT_STORED_PTR(paramname, type); \
-    MH_REQUIRE_POINTER(paramname)
+// Requires key, then declares type paramname = copy of stored value.
+//   MH_ExtractDeref(Strength, float);  // declares: float Strength
+#define MH_ExtractDeref(paramname, type) \
+    MH_Require(paramname) \
+    type paramname = MH_GetDeref(paramname, type)
 
 // ============================================================
 // CanReceiveMID helper macros

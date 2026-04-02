@@ -180,13 +180,11 @@ static int UnsafeHashMap_Remove(UnsafeHashMap *map, const void *key, uint32_t ke
     return 0;
 }
 
-#define UnsafeHashMap_GetValue(map, key, key_len, type) \
+#define UnsafeHashMap_GetDeref(map, key, key_len, type) \
     (*(type *)UnsafeHashMap_Get(map, key, key_len))
 
-#define UnsafeHashMap_SetValue(map, key, key_len, type, value) do { \
-    type _uhm_tmp = (value); \
-    UnsafeHashMap_Set(map, key, key_len, &_uhm_tmp); \
-} while (0)
+#define UnsafeHashMap_SetValue(map, key, key_len, type, value) \
+    UnsafeHashMap_Set(map, key, key_len, &(type){value})
 
 // String literal key convenience macros -- length computed at compile time.
 // Only accepts string literals (e.g. "health"), NOT char* variables.
@@ -194,7 +192,7 @@ static int UnsafeHashMap_Remove(UnsafeHashMap *map, const void *key, uint32_t ke
 #define UnsafeHashMap_SGet(map, str_key)                         UnsafeHashMap_Get(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeHashMap_SHas(map, str_key)                         UnsafeHashMap_Has(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeHashMap_SRemove(map, str_key)                      UnsafeHashMap_Remove(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
-#define UnsafeHashMap_SGetValue(map, str_key, type)              UnsafeHashMap_GetValue(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
+#define UnsafeHashMap_SGetDeref(map, str_key, type)              UnsafeHashMap_GetDeref(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
 #define UnsafeHashMap_SSetValue(map, str_key, type, value)       UnsafeHashMap_SetValue(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)
 
 // _UNSAFE_STRLITERAL_LEN is defined in UnsafeDictionary.h; if using standalone,
@@ -452,13 +450,11 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
     return 0;
 }
 
-#define UnsafeVariedHashMap_GetValue(map, key, key_len, type) \
+#define UnsafeVariedHashMap_GetDeref(map, key, key_len, type) \
     (*(type *)UnsafeVariedHashMap_Get(map, key, key_len))
 
-#define UnsafeVariedHashMap_SetValue(map, key, key_len, type, value) do { \
-    type _uvhm_tmp = (value); \
-    UnsafeVariedHashMap_Set(map, key, key_len, &_uvhm_tmp, sizeof(type)); \
-} while (0)
+#define UnsafeVariedHashMap_SetValue(map, key, key_len, type, value) \
+    UnsafeVariedHashMap_Set(map, key, key_len, &(type){value}, sizeof(type))
 
 // String literal key convenience macros
 #define UnsafeVariedHashMap_SSet(map, str_key, value_ptr, value_size) UnsafeVariedHashMap_Set(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), value_ptr, value_size)
@@ -466,5 +462,5 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
 #define UnsafeVariedHashMap_SGetSize(map, str_key)                   UnsafeVariedHashMap_GetSize(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeVariedHashMap_SHas(map, str_key)                       UnsafeVariedHashMap_Has(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeVariedHashMap_SRemove(map, str_key)                    UnsafeVariedHashMap_Remove(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
-#define UnsafeVariedHashMap_SGetValue(map, str_key, type)            UnsafeVariedHashMap_GetValue(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
+#define UnsafeVariedHashMap_SGetDeref(map, str_key, type)            UnsafeVariedHashMap_GetDeref(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
 #define UnsafeVariedHashMap_SSetValue(map, str_key, type, value)     UnsafeVariedHashMap_SetValue(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)

@@ -119,13 +119,11 @@ static int UnsafeDictionary_Remove(UnsafeDictionary *dict, const void *key, uint
     return 0;
 }
 
-#define UnsafeDictionary_GetValue(dict, key, key_len, type) \
+#define UnsafeDictionary_GetDeref(dict, key, key_len, type) \
     (*(type *)UnsafeDictionary_Get(dict, key, key_len))
 
-#define UnsafeDictionary_SetValue(dict, key, key_len, type, value) do { \
-    type _ud_tmp = (value); \
-    UnsafeDictionary_Set(dict, key, key_len, &_ud_tmp); \
-} while (0)
+#define UnsafeDictionary_SetValue(dict, key, key_len, type, value) \
+    UnsafeDictionary_Set(dict, key, key_len, &(type){value})
 
 // Compile-time string literal length. Rejects char* pointers at compile time.
 #define _UNSAFE_STRLITERAL_LEN(s) ({ \
@@ -142,7 +140,7 @@ static int UnsafeDictionary_Remove(UnsafeDictionary *dict, const void *key, uint
 #define UnsafeDictionary_SGet(dict, str_key)                         UnsafeDictionary_Get(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeDictionary_SHas(dict, str_key)                         UnsafeDictionary_Has(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeDictionary_SRemove(dict, str_key)                      UnsafeDictionary_Remove(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
-#define UnsafeDictionary_SGetValue(dict, str_key, type)              UnsafeDictionary_GetValue(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
+#define UnsafeDictionary_SGetDeref(dict, str_key, type)              UnsafeDictionary_GetDeref(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
 #define UnsafeDictionary_SSetValue(dict, str_key, type, value)       UnsafeDictionary_SetValue(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)
 
 typedef void (*UnsafeDictFormatter)(const void *value, char *buf, uint32_t buf_size);
@@ -420,13 +418,11 @@ static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const voi
     return 0;
 }
 
-#define UnsafeVariedDictionary_GetValue(dict, key, key_len, type) \
+#define UnsafeVariedDictionary_GetDeref(dict, key, key_len, type) \
     (*(type *)UnsafeVariedDictionary_Get(dict, key, key_len))
 
-#define UnsafeVariedDictionary_SetValue(dict, key, key_len, type, value) do { \
-    type _uvd_tmp = (value); \
-    UnsafeVariedDictionary_Set(dict, key, key_len, &_uvd_tmp, sizeof(type)); \
-} while (0)
+#define UnsafeVariedDictionary_SetValue(dict, key, key_len, type, value) \
+    UnsafeVariedDictionary_Set(dict, key, key_len, &(type){value}, sizeof(type))
 
 // String literal key convenience macros
 #define UnsafeVariedDictionary_SSet(dict, str_key, value_ptr, value_size) UnsafeVariedDictionary_Set(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), value_ptr, value_size)
@@ -434,5 +430,5 @@ static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const voi
 #define UnsafeVariedDictionary_SGetSize(dict, str_key)                   UnsafeVariedDictionary_GetSize(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeVariedDictionary_SHas(dict, str_key)                       UnsafeVariedDictionary_Has(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeVariedDictionary_SRemove(dict, str_key)                    UnsafeVariedDictionary_Remove(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
-#define UnsafeVariedDictionary_SGetValue(dict, str_key, type)            UnsafeVariedDictionary_GetValue(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
+#define UnsafeVariedDictionary_SGetDeref(dict, str_key, type)            UnsafeVariedDictionary_GetDeref(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
 #define UnsafeVariedDictionary_SSetValue(dict, str_key, type, value)     UnsafeVariedDictionary_SetValue(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)

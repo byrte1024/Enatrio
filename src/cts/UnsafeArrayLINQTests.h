@@ -25,9 +25,9 @@ static void test_linq_where(void) {
     UnsafeArray *arr = _make_ints((int[]){1,2,3,4,5,6}, 6);
     UnsafeArray *evens = UnsafeArray_Where(arr, _is_even);
     ASSERT(evens->count == 3);
-    ASSERT(UnsafeArray_GetValue(evens, 0, int) == 2);
-    ASSERT(UnsafeArray_GetValue(evens, 1, int) == 4);
-    ASSERT(UnsafeArray_GetValue(evens, 2, int) == 6);
+    ASSERT(UnsafeArray_GetDeref(evens, 0, int) == 2);
+    ASSERT(UnsafeArray_GetDeref(evens, 1, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(evens, 2, int) == 6);
     UnsafeArray_Destroy(evens);
     UnsafeArray_Destroy(arr);
     PASS();
@@ -48,9 +48,9 @@ static void test_linq_select(void) {
     UnsafeArray *arr = _make_ints((int[]){1,2,3}, 3);
     UnsafeArray *doubled = UnsafeArray_Select(arr, _double_it, sizeof(int));
     ASSERT(doubled->count == 3);
-    ASSERT(UnsafeArray_GetValue(doubled, 0, int) == 2);
-    ASSERT(UnsafeArray_GetValue(doubled, 1, int) == 4);
-    ASSERT(UnsafeArray_GetValue(doubled, 2, int) == 6);
+    ASSERT(UnsafeArray_GetDeref(doubled, 0, int) == 2);
+    ASSERT(UnsafeArray_GetDeref(doubled, 1, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(doubled, 2, int) == 6);
     UnsafeArray_Destroy(doubled);
     UnsafeArray_Destroy(arr);
     PASS();
@@ -172,9 +172,9 @@ static void test_linq_foreach(void) {
     TEST("linq: ForEach mutates in place");
     UnsafeArray *arr = _make_ints((int[]){1,2,3}, 3);
     UnsafeArray_ForEach(arr, _negate);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == -1);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == -2);
-    ASSERT(UnsafeArray_GetValue(arr, 2, int) == -3);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == -1);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == -2);
+    ASSERT(UnsafeArray_GetDeref(arr, 2, int) == -3);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -185,9 +185,9 @@ static void test_linq_removeall(void) {
     uint32_t removed = UnsafeArray_RemoveAll(arr, _is_even);
     ASSERT(removed == 3);
     ASSERT(arr->count == 3);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 1);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == 3);
-    ASSERT(UnsafeArray_GetValue(arr, 2, int) == 5);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 1);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 3);
+    ASSERT(UnsafeArray_GetDeref(arr, 2, int) == 5);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -197,7 +197,7 @@ static void test_linq_orderby(void) {
     UnsafeArray *arr = _make_ints((int[]){5,1,4,2,3}, 5);
     UnsafeArray_OrderBy(arr, _int_cmp);
     for (int i = 0; i < 5; i++) {
-        ASSERT(UnsafeArray_GetValue(arr, (uint32_t)i, int) == i + 1);
+        ASSERT(UnsafeArray_GetDeref(arr, (uint32_t)i, int) == i + 1);
     }
     UnsafeArray_Destroy(arr);
     PASS();
@@ -207,11 +207,11 @@ static void test_linq_reverse(void) {
     TEST("linq: Reverse in place");
     UnsafeArray *arr = _make_ints((int[]){1,2,3,4,5}, 5);
     UnsafeArray_Reverse(arr);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 5);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == 4);
-    ASSERT(UnsafeArray_GetValue(arr, 2, int) == 3);
-    ASSERT(UnsafeArray_GetValue(arr, 3, int) == 2);
-    ASSERT(UnsafeArray_GetValue(arr, 4, int) == 1);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 5);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(arr, 2, int) == 3);
+    ASSERT(UnsafeArray_GetDeref(arr, 3, int) == 2);
+    ASSERT(UnsafeArray_GetDeref(arr, 4, int) == 1);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -222,10 +222,10 @@ static void test_linq_distinct(void) {
     uint32_t removed = UnsafeArray_Distinct(arr);
     ASSERT(removed == 3);
     ASSERT(arr->count == 4);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 1);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == 2);
-    ASSERT(UnsafeArray_GetValue(arr, 2, int) == 3);
-    ASSERT(UnsafeArray_GetValue(arr, 3, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 1);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 2);
+    ASSERT(UnsafeArray_GetDeref(arr, 2, int) == 3);
+    ASSERT(UnsafeArray_GetDeref(arr, 3, int) == 4);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -235,10 +235,10 @@ static void test_linq_skip_take(void) {
     UnsafeArray *arr = _make_ints((int[]){10,20,30,40,50}, 5);
     UnsafeArray *skipped = UnsafeArray_Skip(arr, 2);
     ASSERT(skipped->count == 3);
-    ASSERT(UnsafeArray_GetValue(skipped, 0, int) == 30);
+    ASSERT(UnsafeArray_GetDeref(skipped, 0, int) == 30);
     UnsafeArray *taken = UnsafeArray_Take(arr, 3);
     ASSERT(taken->count == 3);
-    ASSERT(UnsafeArray_GetValue(taken, 2, int) == 30);
+    ASSERT(UnsafeArray_GetDeref(taken, 2, int) == 30);
     UnsafeArray_Destroy(skipped);
     UnsafeArray_Destroy(taken);
     UnsafeArray_Destroy(arr);
@@ -250,11 +250,11 @@ static void test_linq_skipwhile_takewhile(void) {
     UnsafeArray *arr = _make_ints((int[]){1,2,3,4,5,6}, 6);
     UnsafeArray *sw = UnsafeArray_SkipWhile(arr, _less_than_5);
     ASSERT(sw->count == 2);
-    ASSERT(UnsafeArray_GetValue(sw, 0, int) == 5);
-    ASSERT(UnsafeArray_GetValue(sw, 1, int) == 6);
+    ASSERT(UnsafeArray_GetDeref(sw, 0, int) == 5);
+    ASSERT(UnsafeArray_GetDeref(sw, 1, int) == 6);
     UnsafeArray *tw = UnsafeArray_TakeWhile(arr, _less_than_5);
     ASSERT(tw->count == 4);
-    ASSERT(UnsafeArray_GetValue(tw, 3, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(tw, 3, int) == 4);
     UnsafeArray_Destroy(sw);
     UnsafeArray_Destroy(tw);
     UnsafeArray_Destroy(arr);
@@ -268,7 +268,7 @@ static void test_linq_concat(void) {
     UnsafeArray *c = UnsafeArray_Concat(a, b);
     ASSERT(c->count == 5);
     for (int i = 0; i < 5; i++) {
-        ASSERT(UnsafeArray_GetValue(c, (uint32_t)i, int) == i + 1);
+        ASSERT(UnsafeArray_GetDeref(c, (uint32_t)i, int) == i + 1);
     }
     UnsafeArray_Destroy(a);
     UnsafeArray_Destroy(b);
@@ -283,8 +283,8 @@ static void test_linq_chained(void) {
     UnsafeArray_OrderBy(evens, _int_cmp);
     UnsafeArray *top2 = UnsafeArray_Take(evens, 2);
     ASSERT(top2->count == 2);
-    ASSERT(UnsafeArray_GetValue(top2, 0, int) == 2);
-    ASSERT(UnsafeArray_GetValue(top2, 1, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(top2, 0, int) == 2);
+    ASSERT(UnsafeArray_GetDeref(top2, 1, int) == 4);
     UnsafeArray_Destroy(top2);
     UnsafeArray_Destroy(evens);
     UnsafeArray_Destroy(arr);
@@ -299,7 +299,7 @@ static void test_linq_shuffle(void) {
     // After shuffle, sort and verify all elements still present
     UnsafeArray_OrderBy(arr, _int_cmp);
     for (int i = 0; i < 10; i++) {
-        ASSERT(UnsafeArray_GetValue(arr, (uint32_t)i, int) == i + 1);
+        ASSERT(UnsafeArray_GetDeref(arr, (uint32_t)i, int) == i + 1);
     }
     UnsafeArray_Destroy(arr);
     PASS();
@@ -314,9 +314,9 @@ static void test_macro_where(void) {
     UnsafeArray *arr = _make_ints((int[]){1,2,3,4,5,6,7,8}, 8);
     UnsafeArray *big_evens = LINQ_WHERE(arr, int, x, x > 3 && x % 2 == 0);
     ASSERT(big_evens->count == 3);
-    ASSERT(UnsafeArray_GetValue(big_evens, 0, int) == 4);
-    ASSERT(UnsafeArray_GetValue(big_evens, 1, int) == 6);
-    ASSERT(UnsafeArray_GetValue(big_evens, 2, int) == 8);
+    ASSERT(UnsafeArray_GetDeref(big_evens, 0, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(big_evens, 1, int) == 6);
+    ASSERT(UnsafeArray_GetDeref(big_evens, 2, int) == 8);
     UnsafeArray_Destroy(big_evens);
     UnsafeArray_Destroy(arr);
     PASS();
@@ -367,9 +367,9 @@ static void test_macro_select(void) {
     UnsafeArray *arr = _make_ints((int[]){1,2,3}, 3);
     UnsafeArray *doubled = LINQ_SELECT(arr, int, int, x, x * 2);
     ASSERT(doubled->count == 3);
-    ASSERT(UnsafeArray_GetValue(doubled, 0, int) == 2);
-    ASSERT(UnsafeArray_GetValue(doubled, 1, int) == 4);
-    ASSERT(UnsafeArray_GetValue(doubled, 2, int) == 6);
+    ASSERT(UnsafeArray_GetDeref(doubled, 0, int) == 2);
+    ASSERT(UnsafeArray_GetDeref(doubled, 1, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(doubled, 2, int) == 6);
     UnsafeArray_Destroy(doubled);
     UnsafeArray_Destroy(arr);
     PASS();
@@ -380,9 +380,9 @@ static void test_macro_select_type_change(void) {
     UnsafeArray *arr = _make_ints((int[]){1,2,3}, 3);
     UnsafeArray *floats = LINQ_SELECT(arr, int, float, x, x * 0.5f);
     ASSERT(floats->element_size == sizeof(float));
-    ASSERT(UnsafeArray_GetValue(floats, 0, float) == 0.5f);
-    ASSERT(UnsafeArray_GetValue(floats, 1, float) == 1.0f);
-    ASSERT(UnsafeArray_GetValue(floats, 2, float) == 1.5f);
+    ASSERT(UnsafeArray_GetDeref(floats, 0, float) == 0.5f);
+    ASSERT(UnsafeArray_GetDeref(floats, 1, float) == 1.0f);
+    ASSERT(UnsafeArray_GetDeref(floats, 2, float) == 1.5f);
     UnsafeArray_Destroy(floats);
     UnsafeArray_Destroy(arr);
     PASS();
@@ -392,9 +392,9 @@ static void test_macro_foreach_ref(void) {
     TEST("macro: LINQ_FOREACH_REF mutates in place");
     UnsafeArray *arr = _make_ints((int[]){1,2,3}, 3);
     LINQ_FOREACH_REF(arr, int, p, { *p *= 10; });
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 10);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == 20);
-    ASSERT(UnsafeArray_GetValue(arr, 2, int) == 30);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 10);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 20);
+    ASSERT(UnsafeArray_GetDeref(arr, 2, int) == 30);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -405,7 +405,7 @@ static void test_macro_removeall(void) {
     uint32_t removed = LINQ_REMOVEALL(arr, int, x, x < 0);
     ASSERT(removed == 2);
     ASSERT(arr->count == 3);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 0);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 0);
     UnsafeArray_Destroy(arr);
     PASS();
 }

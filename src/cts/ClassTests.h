@@ -13,43 +13,99 @@ DECLARE_MID(Add);
 DECLARE_MID(Sub);
 DECLARE_MID(Mul);
 DECLARE_MID(AddInPlace);
-DECLARE_MID(AddResult);
+DECLARE_MID(Swap);
+DECLARE_MID(Clamp);
+DECLARE_MID(FMA);
+DECLARE_MID(Stats);
+DECLARE_MID(OptionalInc);
+DECLARE_MID(RawCopy);
 
-// Add: reads a,b values, writes to out pointer
+// Add: ExtractDeref + SetValue
 MESSAGE_HANDLER_BEGIN(Add)
-    MH_REQUIRE_VALUE(a, int);
-    MH_REQUIRE_VALUE(b, int);
-    MH_REQUIRE_STORED_PTR(out, int);
-    *MH_out_Ptr = MH_a_Val + MH_b_Val;
+    MH_ExtractDeref(a, int);
+    MH_ExtractDeref(b, int);
+    MH_SetValue(result, int, a + b);
 MESSAGE_HANDLER_END()
 
+// Sub: ExtractDeref + SetValue
 MESSAGE_HANDLER_BEGIN(Sub)
-    MH_REQUIRE_VALUE(a, int);
-    MH_REQUIRE_VALUE(b, int);
-    MH_REQUIRE_STORED_PTR(out, int);
-    *MH_out_Ptr = MH_a_Val - MH_b_Val;
+    MH_ExtractDeref(a, int);
+    MH_ExtractDeref(b, int);
+    MH_SetValue(result, int, a - b);
 MESSAGE_HANDLER_END()
 
+// Mul: ExtractDeref + SetValue
 MESSAGE_HANDLER_BEGIN(Mul)
-    MH_REQUIRE_VALUE(a, int);
-    MH_REQUIRE_VALUE(b, int);
-    MH_REQUIRE_STORED_PTR(out, int);
-    *MH_out_Ptr = MH_a_Val * MH_b_Val;
+    MH_ExtractDeref(a, int);
+    MH_ExtractDeref(b, int);
+    MH_SetValue(result, int, a * b);
 MESSAGE_HANDLER_END()
 
-// AddInPlace: takes a pointer to target, adds b value into it
+// AddInPlace: ExtractDeref pointer, modify caller's memory
 MESSAGE_HANDLER_BEGIN(AddInPlace)
-    MH_REQUIRE_STORED_PTR(target, int);
-    MH_REQUIRE_VALUE(b, int);
-    *MH_target_Ptr += MH_b_Val;
+    MH_ExtractDeref(target, int*);
+    MH_ExtractDeref(b, int);
+    *target += b;
 MESSAGE_HANDLER_END()
 
-// AddResult: reads a,b values, writes result back into the payload dict
-MESSAGE_HANDLER_BEGIN(AddResult)
-    MH_REQUIRE_VALUE(a, int);
-    MH_REQUIRE_VALUE(b, int);
-    int _sum = MH_a_Val + MH_b_Val;
-    UnsafeVariedHashMap_SSet(payload->data, "result", &_sum, sizeof(int));
+// Swap: Extract (pointer to stored), swap two values in-place in the payload
+MESSAGE_HANDLER_BEGIN(Swap)
+    MH_Extract(a, int);
+    MH_Extract(b, int);
+    int tmp = *a;
+    *a = *b;
+    *b = tmp;
+MESSAGE_HANDLER_END()
+
+// Clamp: uses MH_Get (nullable) for optional min/max with defaults
+MESSAGE_HANDLER_BEGIN(Clamp)
+    MH_ExtractDeref(value, int);
+    int lo = 0;
+    int hi = 100;
+    int *lo_ptr = MH_Get(min, int);
+    int *hi_ptr = MH_Get(max, int);
+    if (lo_ptr) lo = *lo_ptr;
+    if (hi_ptr) hi = *hi_ptr;
+    int clamped = value < lo ? lo : (value > hi ? hi : value);
+    MH_SetValue(result, int, clamped);
+MESSAGE_HANDLER_END()
+
+// FMA: float fused multiply-add: result = a * b + c (mixed types test)
+MESSAGE_HANDLER_BEGIN(FMA)
+    MH_ExtractDeref(a, float);
+    MH_ExtractDeref(b, float);
+    MH_ExtractDeref(c, float);
+    MH_SetValue(result, float, a * b + c);
+MESSAGE_HANDLER_END()
+
+// Stats: multiple outputs -- computes sum, count, avg from an array pointer + length
+MESSAGE_HANDLER_BEGIN(Stats)
+    MH_ExtractDeref(data, int*);
+    MH_ExtractDeref(len, int);
+    int sum = 0;
+    for (int i = 0; i < len; i++) sum += data[i];
+    MH_SetValue(sum, int, sum);
+    MH_SetValue(count, int, len);
+    float avg = (len > 0) ? (float)sum / (float)len : 0.0f;
+    MH_SetValue(avg, float, avg);
+MESSAGE_HANDLER_END()
+
+// OptionalInc: uses MH_Has to conditionally increment, tests Has + Get
+MESSAGE_HANDLER_BEGIN(OptionalInc)
+    MH_ExtractDeref(value, int);
+    int step = 1;
+    if (MH_Has(step)) {
+        step = MH_GetDeref(step, int);
+    }
+    MH_SetValue(result, int, value + step);
+MESSAGE_HANDLER_END()
+
+// RawCopy: uses MH_Set with raw pointer+size, copies a struct through
+MESSAGE_HANDLER_BEGIN(RawCopy)
+    MH_Require(input);
+    void *src = UnsafeVariedHashMap_SGet(payload->data, "input");
+    uint32_t sz = UnsafeVariedHashMap_SGetSize(payload->data, "input");
+    MH_Set(output, src, sz);
 MESSAGE_HANDLER_END()
 
 CAN_RECEIVE_BEGIN()
@@ -57,7 +113,12 @@ CAN_RECEIVE_BEGIN()
     CAN_RECEIVE_MID(Sub)
     CAN_RECEIVE_MID(Mul)
     CAN_RECEIVE_MID(AddInPlace)
-    CAN_RECEIVE_MID(AddResult)
+    CAN_RECEIVE_MID(Swap)
+    CAN_RECEIVE_MID(Clamp)
+    CAN_RECEIVE_MID(FMA)
+    CAN_RECEIVE_MID(Stats)
+    CAN_RECEIVE_MID(OptionalInc)
+    CAN_RECEIVE_MID(RawCopy)
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
@@ -65,7 +126,12 @@ RECEIVE_MESSAGE_BEGIN()
     RECEIVE_MESSAGE_ROUTE(Sub)
     RECEIVE_MESSAGE_ROUTE(Mul)
     RECEIVE_MESSAGE_ROUTE(AddInPlace)
-    RECEIVE_MESSAGE_ROUTE(AddResult)
+    RECEIVE_MESSAGE_ROUTE(Swap)
+    RECEIVE_MESSAGE_ROUTE(Clamp)
+    RECEIVE_MESSAGE_ROUTE(FMA)
+    RECEIVE_MESSAGE_ROUTE(Stats)
+    RECEIVE_MESSAGE_ROUTE(OptionalInc)
+    RECEIVE_MESSAGE_ROUTE(RawCopy)
 RECEIVE_MESSAGE_END()
 
 CLASSDEF()
@@ -104,70 +170,60 @@ static void test_class_unregistered_cid(void) {
 
 static void test_class_dispatch_add(void) {
     TEST("class: dispatch Calculator.Add");
-    int result = 0;
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "a", int, 10);
     Payload_SetValue(&msg, "b", int, 25);
-    Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
-    ASSERT(result == 35);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 35);
     FreePayload(&msg);
     PASS();
 }
 
 static void test_class_dispatch_sub(void) {
     TEST("class: dispatch Calculator.Sub");
-    int result = 0;
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Sub);
     Payload_SetValue(&msg, "a", int, 100);
     Payload_SetValue(&msg, "b", int, 37);
-    Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
-    ASSERT(result == 63);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 63);
     FreePayload(&msg);
     PASS();
 }
 
 static void test_class_dispatch_mul(void) {
     TEST("class: dispatch Calculator.Mul");
-    int result = 0;
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Mul);
     Payload_SetValue(&msg, "a", int, 6);
     Payload_SetValue(&msg, "b", int, 7);
-    Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
-    ASSERT(result == 42);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 42);
     FreePayload(&msg);
     PASS();
 }
 
 static void test_class_dispatch_negative_result(void) {
     TEST("class: Sub with negative result");
-    int result = 0;
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Sub);
     Payload_SetValue(&msg, "a", int, 3);
     Payload_SetValue(&msg, "b", int, 10);
-    Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
-    ASSERT(result == -7);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == -7);
     FreePayload(&msg);
     PASS();
 }
 
 static void test_class_dispatch_zeroes(void) {
     TEST("class: Add with zeroes");
-    int result = 99;
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "a", int, 0);
     Payload_SetValue(&msg, "b", int, 0);
-    Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
-    ASSERT(result == 0);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 0);
     FreePayload(&msg);
     PASS();
 }
@@ -178,7 +234,7 @@ static void test_class_dispatch_add_in_place(void) {
     TEST("class: AddInPlace modifies target pointer");
     int accumulator = 50;
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddInPlace);
-    Payload_SetPointer(&msg, "target", &accumulator);
+    Payload_SetValue(&msg, "target", void*, &accumulator);
     Payload_SetValue(&msg, "b", int, 30);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -192,7 +248,7 @@ static void test_class_dispatch_add_in_place_multiple(void) {
     int total = 0;
     for (int i = 0; i < 5; i++) {
         MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddInPlace);
-        Payload_SetPointer(&msg, "target", &total);
+        Payload_SetValue(&msg, "target", void*, &total);
         Payload_SetValue(&msg, "b", int, 10);
         DispatchMessage(&msg);
         ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -202,30 +258,16 @@ static void test_class_dispatch_add_in_place_multiple(void) {
     PASS();
 }
 
-static void test_class_dispatch_add_result_in_dict(void) {
-    TEST("class: AddResult writes result into payload dict");
-    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddResult);
+static void test_class_dispatch_result_in_dict(void) {
+    TEST("class: Add writes result into payload dict");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "a", int, 17);
     Payload_SetValue(&msg, "b", int, 25);
+    ASSERT(!Payload_Has(&msg, "result"));
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
-    // handler wrote "result" into the dict, read it back
-    ASSERT(UnsafeVariedHashMap_SHas(msg.data, "result"));
-    int sum = UnsafeVariedHashMap_SGetValue(msg.data, "result", int);
-    ASSERT(sum == 42);
-    FreePayload(&msg);
-    PASS();
-}
-
-static void test_class_dispatch_add_result_missing_key(void) {
-    TEST("class: AddResult has no result key before dispatch");
-    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddResult);
-    Payload_SetValue(&msg, "a", int, 1);
-    Payload_SetValue(&msg, "b", int, 2);
-    ASSERT(!UnsafeVariedHashMap_SHas(msg.data, "result"));
-    DispatchMessage(&msg);
-    ASSERT(UnsafeVariedHashMap_SHas(msg.data, "result"));
-    ASSERT(UnsafeVariedHashMap_SGetValue(msg.data, "result", int) == 3);
+    ASSERT(Payload_Has(&msg, "result"));
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 42);
     FreePayload(&msg);
     PASS();
 }
@@ -236,12 +278,228 @@ static void test_class_dispatch_pointer_modify_external(void) {
     Point p = { 10, 20 };
     // Use AddInPlace to modify p.x via pointer
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddInPlace);
-    Payload_SetPointer(&msg, "target", &p.x);
+    Payload_SetValue(&msg, "target", void*, &p.x);
     Payload_SetValue(&msg, "b", int, 5);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
     ASSERT(p.x == 15);
     ASSERT(p.y == 20); // y untouched
+    FreePayload(&msg);
+    PASS();
+}
+
+// -- Swap tests (MH_Extract: pointer to stored value, mutate in-place) --
+
+static void test_class_dispatch_swap(void) {
+    TEST("class: Swap exchanges two values in payload");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Swap);
+    Payload_SetValue(&msg, "a", int, 10);
+    Payload_SetValue(&msg, "b", int, 20);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(Payload_GetDeref(&msg, "a", int) == 20);
+    ASSERT(Payload_GetDeref(&msg, "b", int) == 10);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_swap_same(void) {
+    TEST("class: Swap with equal values is no-op");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Swap);
+    Payload_SetValue(&msg, "a", int, 5);
+    Payload_SetValue(&msg, "b", int, 5);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(Payload_GetDeref(&msg, "a", int) == 5);
+    ASSERT(Payload_GetDeref(&msg, "b", int) == 5);
+    FreePayload(&msg);
+    PASS();
+}
+
+// -- Clamp tests (MH_Get nullable, optional params with defaults) --
+
+static void test_class_dispatch_clamp_within(void) {
+    TEST("class: Clamp value within range unchanged");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Clamp);
+    Payload_SetValue(&msg, "value", int, 50);
+    Payload_SetValue(&msg, "min", int, 0);
+    Payload_SetValue(&msg, "max", int, 100);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 50);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_clamp_below(void) {
+    TEST("class: Clamp value below min");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Clamp);
+    Payload_SetValue(&msg, "value", int, -10);
+    Payload_SetValue(&msg, "min", int, 0);
+    Payload_SetValue(&msg, "max", int, 100);
+    DispatchMessage(&msg);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 0);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_clamp_above(void) {
+    TEST("class: Clamp value above max");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Clamp);
+    Payload_SetValue(&msg, "value", int, 200);
+    Payload_SetValue(&msg, "min", int, 0);
+    Payload_SetValue(&msg, "max", int, 100);
+    DispatchMessage(&msg);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 100);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_clamp_defaults(void) {
+    TEST("class: Clamp uses defaults when min/max omitted");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Clamp);
+    Payload_SetValue(&msg, "value", int, 999);
+    // no min/max -- defaults to 0..100
+    DispatchMessage(&msg);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 100);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_clamp_partial(void) {
+    TEST("class: Clamp with only min set");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Clamp);
+    Payload_SetValue(&msg, "value", int, -5);
+    Payload_SetValue(&msg, "min", int, 10);
+    // no max -- defaults to 100
+    DispatchMessage(&msg);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 10);
+    FreePayload(&msg);
+    PASS();
+}
+
+// -- FMA tests (float types, MH_ExtractDeref + MH_SetValue with float) --
+
+static void test_class_dispatch_fma(void) {
+    TEST("class: FMA computes a*b+c with floats");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_FMA);
+    Payload_SetValue(&msg, "a", float, 2.0f);
+    Payload_SetValue(&msg, "b", float, 3.0f);
+    Payload_SetValue(&msg, "c", float, 1.5f);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    float r = Payload_GetDeref(&msg, "result", float);
+    ASSERT(r > 7.4f && r < 7.6f); // 2*3+1.5 = 7.5
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_fma_zeroes(void) {
+    TEST("class: FMA with zeroes");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_FMA);
+    Payload_SetValue(&msg, "a", float, 0.0f);
+    Payload_SetValue(&msg, "b", float, 99.0f);
+    Payload_SetValue(&msg, "c", float, 5.0f);
+    DispatchMessage(&msg);
+    float r = Payload_GetDeref(&msg, "result", float);
+    ASSERT(r > 4.9f && r < 5.1f); // 0*99+5 = 5
+    FreePayload(&msg);
+    PASS();
+}
+
+// -- Stats tests (pointer to external array, multiple outputs, mixed types) --
+
+static void test_class_dispatch_stats(void) {
+    TEST("class: Stats computes sum, count, avg");
+    int data[] = {10, 20, 30, 40};
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Stats);
+    Payload_SetValue(&msg, "data", int*, data);
+    Payload_SetValue(&msg, "len", int, 4);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(Payload_GetDeref(&msg, "sum", int) == 100);
+    ASSERT(Payload_GetDeref(&msg, "count", int) == 4);
+    float avg = Payload_GetDeref(&msg, "avg", float);
+    ASSERT(avg > 24.9f && avg < 25.1f);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_stats_single(void) {
+    TEST("class: Stats with single element");
+    int data[] = {42};
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Stats);
+    Payload_SetValue(&msg, "data", int*, data);
+    Payload_SetValue(&msg, "len", int, 1);
+    DispatchMessage(&msg);
+    ASSERT(Payload_GetDeref(&msg, "sum", int) == 42);
+    ASSERT(Payload_GetDeref(&msg, "count", int) == 1);
+    float avg = Payload_GetDeref(&msg, "avg", float);
+    ASSERT(avg > 41.9f && avg < 42.1f);
+    FreePayload(&msg);
+    PASS();
+}
+
+// -- OptionalInc tests (MH_Has + MH_GetDeref for optional params) --
+
+static void test_class_dispatch_optional_inc_default(void) {
+    TEST("class: OptionalInc uses default step of 1");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_OptionalInc);
+    Payload_SetValue(&msg, "value", int, 10);
+    DispatchMessage(&msg);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 11);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_optional_inc_custom(void) {
+    TEST("class: OptionalInc uses custom step");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_OptionalInc);
+    Payload_SetValue(&msg, "value", int, 10);
+    Payload_SetValue(&msg, "step", int, 5);
+    DispatchMessage(&msg);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 15);
+    FreePayload(&msg);
+    PASS();
+}
+
+// -- RawCopy tests (MH_Set with raw ptr+size, MH_Require, struct passthrough) --
+
+static void test_class_dispatch_raw_copy_int(void) {
+    TEST("class: RawCopy passes int through");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_RawCopy);
+    Payload_SetValue(&msg, "input", int, 42);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(Payload_GetDeref(&msg, "output", int) == 42);
+    ASSERT(Payload_GetSize(&msg, "output") == sizeof(int));
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_raw_copy_struct(void) {
+    TEST("class: RawCopy passes struct through");
+    typedef struct { int x; int y; float z; } Vec3;
+    Vec3 v = { 1, 2, 3.0f };
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_RawCopy);
+    Payload_Set(&msg, "input", &v, sizeof(Vec3));
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    Vec3 *out = (Vec3*)Payload_Get(&msg, "output");
+    ASSERT(out != NULL);
+    ASSERT(out->x == 1);
+    ASSERT(out->y == 2);
+    ASSERT(out->z > 2.9f && out->z < 3.1f);
+    ASSERT(Payload_GetSize(&msg, "output") == sizeof(Vec3));
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_raw_copy_missing(void) {
+    TEST("class: RawCopy fails without input");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_RawCopy);
+    DispatchMessage(&msg);
+    ASSERT(msg.result == MESSAGE_RESULT_MISSING_PARAMS);
     FreePayload(&msg);
     PASS();
 }
@@ -252,7 +510,7 @@ static void test_class_dispatch_missing_params(void) {
     TEST("class: dispatch with missing params");
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "a", int, 5);
-    // missing "b" and "out"
+    // missing "b"
     DispatchMessage(&msg);
     ASSERT(msg.result == MESSAGE_RESULT_MISSING_PARAMS);
     FreePayload(&msg);
@@ -328,83 +586,51 @@ static void test_class_free_payload_safe(void) {
 
 // -- Payload macro tests --
 
-static void test_class_payload_set_value(void) {
-    TEST("class: Payload_SetValue stores value by copy");
+static void test_class_payload_set_get(void) {
+    TEST("class: Payload Set/Get/GetDeref/Has");
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "x", int, 77);
-    int *got = (int*)UnsafeVariedHashMap_SGet(msg.data, "x");
-    ASSERT(got != NULL);
-    ASSERT(*got == 77);
-    FreePayload(&msg);
-    PASS();
-}
-
-static void test_class_payload_set_pointer(void) {
-    TEST("class: Payload_SetPointer stores pointer");
-    int val = 42;
-    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
-    Payload_SetPointer(&msg, "p", &val);
-    int *got = (int*)UnsafeVariedHashMap_SGetValue(msg.data, "p", void*);
-    ASSERT(got == &val);
-    ASSERT(*got == 42);
-    FreePayload(&msg);
-    PASS();
-}
-
-static void test_class_payload_set_value_dispatch(void) {
-    TEST("class: Payload_SetValue survives to dispatch");
-    int result = 0;
-    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
-    Payload_SetValue(&msg, "a", int, 30);
-    Payload_SetValue(&msg, "b", int, 12);
-    Payload_SetPointer(&msg, "out", &result);
-    DispatchMessage(&msg);
-    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
-    ASSERT(result == 42);
+    ASSERT(Payload_Has(&msg, "x"));
+    ASSERT(!Payload_Has(&msg, "y"));
+    ASSERT(Payload_GetDeref(&msg, "x", int) == 77);
+    ASSERT(*(int*)Payload_Get(&msg, "x") == 77);
+    ASSERT(Payload_GetSize(&msg, "x") == sizeof(int));
     FreePayload(&msg);
     PASS();
 }
 
 static void test_class_payload_multiple_types(void) {
-    TEST("class: Payload_SetValue with different types");
+    TEST("class: Payload stores different types");
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "i", int, 10);
     Payload_SetValue(&msg, "f", float, 3.14f);
     Payload_SetValue(&msg, "c", char, 'A');
-
-    ASSERT(UnsafeVariedHashMap_SGetValue(msg.data, "i", int) == 10);
-    float fv = UnsafeVariedHashMap_SGetValue(msg.data, "f", float);
+    ASSERT(Payload_GetDeref(&msg, "i", int) == 10);
+    float fv = Payload_GetDeref(&msg, "f", float);
     ASSERT(fv > 3.13f && fv < 3.15f);
-    ASSERT(UnsafeVariedHashMap_SGetValue(msg.data, "c", char) == 'A');
-
-    ASSERT(UnsafeVariedHashMap_SGetSize(msg.data, "i") == sizeof(int));
-    ASSERT(UnsafeVariedHashMap_SGetSize(msg.data, "f") == sizeof(float));
-    ASSERT(UnsafeVariedHashMap_SGetSize(msg.data, "c") == sizeof(char));
+    ASSERT(Payload_GetDeref(&msg, "c", char) == 'A');
     FreePayload(&msg);
     PASS();
 }
 
 static void test_class_payload_duplicate_key(void) {
-    TEST("class: duplicate key in payload returns -1");
+    TEST("class: duplicate key returns -1");
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "k", int, 5);
-    int b = 10;
-    int ret = UnsafeVariedHashMap_SSet(msg.data, "k", &b, sizeof(int));
-    ASSERT(ret == -1);
+    ASSERT(Payload_Set(&msg, "k", &(int){10}, sizeof(int)) == -1);
+    ASSERT(Payload_GetDeref(&msg, "k", int) == 5);
     FreePayload(&msg);
     PASS();
 }
 
-static void test_class_payload_mixed_dispatch(void) {
-    TEST("class: mix SetValue and SetPointer in dispatch");
-    int result = 0;
+static void test_class_payload_dispatch_roundtrip(void) {
+    TEST("class: set values, dispatch, read result");
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "a", int, 100);
     Payload_SetValue(&msg, "b", int, 200);
-    Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
-    ASSERT(result == 300);
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 300);
     FreePayload(&msg);
     PASS();
 }
@@ -431,9 +657,36 @@ static void run_class_tests(void) {
     LOG_INFO("=== Pointer and Dict-Output Tests ===");
     test_class_dispatch_add_in_place();
     test_class_dispatch_add_in_place_multiple();
-    test_class_dispatch_add_result_in_dict();
-    test_class_dispatch_add_result_missing_key();
+    test_class_dispatch_result_in_dict();
     test_class_dispatch_pointer_modify_external();
+
+    LOG_INFO("=== Swap Tests (MH_Extract) ===");
+    test_class_dispatch_swap();
+    test_class_dispatch_swap_same();
+
+    LOG_INFO("=== Clamp Tests (MH_Get nullable, optional params) ===");
+    test_class_dispatch_clamp_within();
+    test_class_dispatch_clamp_below();
+    test_class_dispatch_clamp_above();
+    test_class_dispatch_clamp_defaults();
+    test_class_dispatch_clamp_partial();
+
+    LOG_INFO("=== FMA Tests (float ExtractDeref + SetValue) ===");
+    test_class_dispatch_fma();
+    test_class_dispatch_fma_zeroes();
+
+    LOG_INFO("=== Stats Tests (pointer to array, multiple outputs) ===");
+    test_class_dispatch_stats();
+    test_class_dispatch_stats_single();
+
+    LOG_INFO("=== OptionalInc Tests (MH_Has + MH_GetDeref) ===");
+    test_class_dispatch_optional_inc_default();
+    test_class_dispatch_optional_inc_custom();
+
+    LOG_INFO("=== RawCopy Tests (MH_Set raw, MH_Require, struct) ===");
+    test_class_dispatch_raw_copy_int();
+    test_class_dispatch_raw_copy_struct();
+    test_class_dispatch_raw_copy_missing();
 
     LOG_INFO("=== Error Handling Tests ===");
     test_class_dispatch_missing_params();
@@ -446,10 +699,8 @@ static void run_class_tests(void) {
     LOG_INFO("=== Payload Macro Tests ===");
     test_class_payload_initial_state();
     test_class_free_payload_safe();
-    test_class_payload_set_value();
-    test_class_payload_set_pointer();
-    test_class_payload_set_value_dispatch();
+    test_class_payload_set_get();
     test_class_payload_multiple_types();
     test_class_payload_duplicate_key();
-    test_class_payload_mixed_dispatch();
+    test_class_payload_dispatch_roundtrip();
 }

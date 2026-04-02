@@ -73,12 +73,10 @@ static void UnsafeArray_Clear(UnsafeArray *arr) {
     arr->count = 0;
 }
 
-#define UnsafeArray_GetValue(arr, index, type) (*(type *)UnsafeArray_Get(arr, index))
+#define UnsafeArray_GetDeref(arr, index, type) (*(type *)UnsafeArray_Get(arr, index))
 
-#define UnsafeArray_SetValue(arr, index, type, value) do { \
-    type _ua_tmp = (value); \
-    UnsafeArray_Set(arr, index, &_ua_tmp); \
-} while (0)
+#define UnsafeArray_SetValue(arr, index, type, value) \
+    UnsafeArray_Set(arr, index, &(type){value})
 
 typedef void (*UnsafeArrayFormatter)(uint32_t index, const void *element, char *buf, uint32_t buf_size);
 

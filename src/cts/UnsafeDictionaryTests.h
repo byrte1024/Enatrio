@@ -36,8 +36,8 @@ static void test_dict_getvalue_setvalue(void) {
     UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
     UnsafeDictionary_SetValue(dict, "foo", 3, int, 42);
     UnsafeDictionary_SetValue(dict, "bar", 3, int, 99);
-    ASSERT(UnsafeDictionary_GetValue(dict, "foo", 3, int) == 42);
-    ASSERT(UnsafeDictionary_GetValue(dict, "bar", 3, int) == 99);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "foo", 3, int) == 42);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "bar", 3, int) == 99);
     UnsafeDictionary_Destroy(dict);
     PASS();
 }
@@ -49,7 +49,7 @@ static void test_dict_duplicate_key_rejected(void) {
     ASSERT(UnsafeDictionary_Set(dict, "key", 3, &v) == 0);
     v = 20;
     ASSERT(UnsafeDictionary_Set(dict, "key", 3, &v) == -1);
-    ASSERT(UnsafeDictionary_GetValue(dict, "key", 3, int) == 10);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "key", 3, int) == 10);
     UnsafeDictionary_Destroy(dict);
     PASS();
 }
@@ -118,9 +118,9 @@ static void test_dict_prefix_keys(void) {
     ASSERT(UnsafeDictionary_Set(dict, "a", 1, &v1) == 0);
     ASSERT(UnsafeDictionary_Set(dict, "ab", 2, &v2) == 0);
     ASSERT(UnsafeDictionary_Set(dict, "abc", 3, &v3) == 0);
-    ASSERT(UnsafeDictionary_GetValue(dict, "a", 1, int) == 1);
-    ASSERT(UnsafeDictionary_GetValue(dict, "ab", 2, int) == 2);
-    ASSERT(UnsafeDictionary_GetValue(dict, "abc", 3, int) == 3);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "a", 1, int) == 1);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "ab", 2, int) == 2);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "abc", 3, int) == 3);
     UnsafeDictionary_Destroy(dict);
     PASS();
 }
@@ -130,7 +130,7 @@ static void test_dict_empty_key(void) {
     UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
     int v = 999;
     ASSERT(UnsafeDictionary_Set(dict, "", 0, &v) == 0);
-    ASSERT(UnsafeDictionary_GetValue(dict, "", 0, int) == 999);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "", 0, int) == 999);
     ASSERT(UnsafeDictionary_Get(dict, "a", 1) == NULL);
     UnsafeDictionary_Destroy(dict);
     PASS();
@@ -143,7 +143,7 @@ static void test_dict_modify_in_place(void) {
     UnsafeDictionary_Set(dict, "hp", 2, &v);
     int *ptr = (int *)UnsafeDictionary_Get(dict, "hp", 2);
     *ptr = 80;
-    ASSERT(UnsafeDictionary_GetValue(dict, "hp", 2, int) == 80);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "hp", 2, int) == 80);
     UnsafeDictionary_Destroy(dict);
     PASS();
 }
@@ -223,15 +223,15 @@ static void test_dict_string_macros(void) {
 
     ASSERT(UnsafeDictionary_SHas(dict, "health") == 1);
     ASSERT(UnsafeDictionary_SHas(dict, "nope") == 0);
-    ASSERT(UnsafeDictionary_SGetValue(dict, "health", int) == 100);
-    ASSERT(UnsafeDictionary_SGetValue(dict, "mana", int) == 50);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "health", int) == 100);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "mana", int) == 50);
 
     int *ptr = (int *)UnsafeDictionary_SGet(dict, "health");
     ASSERT(ptr != NULL && *ptr == 100);
 
     int v = 25;
     ASSERT(UnsafeDictionary_SSet(dict, "armor", &v) == 0);
-    ASSERT(UnsafeDictionary_SGetValue(dict, "armor", int) == 25);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "armor", int) == 25);
 
     ASSERT(UnsafeDictionary_SRemove(dict, "mana") == 0);
     ASSERT(UnsafeDictionary_SHas(dict, "mana") == 0);

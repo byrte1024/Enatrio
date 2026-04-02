@@ -9,9 +9,10 @@ BEGIN_CLASS(0x22AB);
 DECLARE_MID(ShimmiShimmiYea);
 
 MESSAGE_HANDLER_BEGIN(ShimmiShimmiYea)
-    MH_REQUIRE_PARAM(Strength, float);
 
-    LOG_INFO("Strength: %f", *MH_Strength_Ptr);
+    MH_ExtractDeref(Strength, float);
+    LOG_INFO("Strength: %f", Strength);
+
 MESSAGE_HANDLER_END()
 
 CAN_RECEIVE_BEGIN()

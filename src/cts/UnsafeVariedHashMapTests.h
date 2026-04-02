@@ -42,13 +42,13 @@ static void test_varied_hm_different_sizes(void) {
     UnsafeVariedHashMap_SSet(map, "c8", &c, sizeof(char));
     UnsafeVariedHashMap_SSet(map, "i64", &big, sizeof(int64_t));
 
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "i32", int32_t) == 100);
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "f32", float) > 3.13f);
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "f32", float) < 3.15f);
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "f64", double) > 2.71);
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "f64", double) < 2.72);
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "c8", char) == 'X');
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "i64", int64_t) == 9999999999LL);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "i32", int32_t) == 100);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "f32", float) > 3.13f);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "f32", float) < 3.15f);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "f64", double) > 2.71);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "f64", double) < 2.72);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "c8", char) == 'X');
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "i64", int64_t) == 9999999999LL);
 
     UnsafeVariedHashMap_Destroy(map);
     PASS();
@@ -81,8 +81,8 @@ static void test_varied_hm_setvalue_macro(void) {
     UnsafeVariedHashMap_SSetValue(map, "hp", int, 250);
     UnsafeVariedHashMap_SSetValue(map, "speed", float, 1.5f);
 
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "hp", int) == 250);
-    float sp = UnsafeVariedHashMap_SGetValue(map, "speed", float);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "hp", int) == 250);
+    float sp = UnsafeVariedHashMap_SGetDeref(map, "speed", float);
     ASSERT(sp > 1.4f && sp < 1.6f);
 
     UnsafeVariedHashMap_Destroy(map);
@@ -95,7 +95,7 @@ static void test_varied_hm_duplicate_key(void) {
     int a = 1, b = 2;
     ASSERT(UnsafeVariedHashMap_SSet(map, "x", &a, sizeof(int)) == 0);
     ASSERT(UnsafeVariedHashMap_SSet(map, "x", &b, sizeof(int)) == -1);
-    ASSERT(UnsafeVariedHashMap_SGetValue(map, "x", int) == 1);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "x", int) == 1);
     UnsafeVariedHashMap_Destroy(map);
     PASS();
 }

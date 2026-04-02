@@ -41,13 +41,13 @@ static void test_varied_dict_different_sizes(void) {
     UnsafeVariedDictionary_SSet(dict, "c8", &c, sizeof(char));
     UnsafeVariedDictionary_SSet(dict, "i64", &big, sizeof(int64_t));
 
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "i32", int32_t) == 100);
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "f32", float) > 3.13f);
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "f32", float) < 3.15f);
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "f64", double) > 2.71);
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "f64", double) < 2.72);
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "c8", char) == 'X');
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "i64", int64_t) == 9999999999LL);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "i32", int32_t) == 100);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "f32", float) > 3.13f);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "f32", float) < 3.15f);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "f64", double) > 2.71);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "f64", double) < 2.72);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "c8", char) == 'X');
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "i64", int64_t) == 9999999999LL);
 
     UnsafeVariedDictionary_Destroy(dict);
     PASS();
@@ -80,8 +80,8 @@ static void test_varied_dict_setvalue_macro(void) {
     UnsafeVariedDictionary_SSetValue(dict, "hp", int, 250);
     UnsafeVariedDictionary_SSetValue(dict, "speed", float, 1.5f);
 
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "hp", int) == 250);
-    float sp = UnsafeVariedDictionary_SGetValue(dict, "speed", float);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "hp", int) == 250);
+    float sp = UnsafeVariedDictionary_SGetDeref(dict, "speed", float);
     ASSERT(sp > 1.4f && sp < 1.6f);
 
     UnsafeVariedDictionary_Destroy(dict);
@@ -94,7 +94,7 @@ static void test_varied_dict_duplicate_key(void) {
     int a = 1, b = 2;
     ASSERT(UnsafeVariedDictionary_SSet(dict, "x", &a, sizeof(int)) == 0);
     ASSERT(UnsafeVariedDictionary_SSet(dict, "x", &b, sizeof(int)) == -1);
-    ASSERT(UnsafeVariedDictionary_SGetValue(dict, "x", int) == 1);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "x", int) == 1);
     UnsafeVariedDictionary_Destroy(dict);
     PASS();
 }

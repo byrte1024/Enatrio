@@ -36,8 +36,8 @@ static void test_array_getvalue_setvalue(void) {
     UnsafeArray_Add(arr, &v);
     UnsafeArray_SetValue(arr, 0, int, 42);
     UnsafeArray_SetValue(arr, 1, int, 99);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 42);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == 99);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 42);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 99);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -49,7 +49,7 @@ static void test_array_set(void) {
     UnsafeArray_Add(arr, &v);
     int w = 77;
     UnsafeArray_Set(arr, 0, &w);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 77);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 77);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -62,7 +62,7 @@ static void test_array_auto_grow(void) {
     ASSERT(arr->count == 100);
     ASSERT(arr->capacity >= 100);
     for (int i = 0; i < 100; i++) {
-        ASSERT(UnsafeArray_GetValue(arr, (uint32_t)i, int) == i);
+        ASSERT(UnsafeArray_GetDeref(arr, (uint32_t)i, int) == i);
     }
     UnsafeArray_Destroy(arr);
     PASS();
@@ -74,10 +74,10 @@ static void test_array_remove_ordered(void) {
     for (int i = 0; i < 5; i++) UnsafeArray_Add(arr, &i);
     UnsafeArray_Remove(arr, 2);
     ASSERT(arr->count == 4);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 0);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == 1);
-    ASSERT(UnsafeArray_GetValue(arr, 2, int) == 3);
-    ASSERT(UnsafeArray_GetValue(arr, 3, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 0);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 1);
+    ASSERT(UnsafeArray_GetDeref(arr, 2, int) == 3);
+    ASSERT(UnsafeArray_GetDeref(arr, 3, int) == 4);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -88,10 +88,10 @@ static void test_array_remove_swap(void) {
     for (int i = 0; i < 5; i++) UnsafeArray_Add(arr, &i);
     UnsafeArray_RemoveSwap(arr, 1);
     ASSERT(arr->count == 4);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 0);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == 4);
-    ASSERT(UnsafeArray_GetValue(arr, 2, int) == 2);
-    ASSERT(UnsafeArray_GetValue(arr, 3, int) == 3);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 0);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 4);
+    ASSERT(UnsafeArray_GetDeref(arr, 2, int) == 2);
+    ASSERT(UnsafeArray_GetDeref(arr, 3, int) == 3);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -102,10 +102,10 @@ static void test_array_remove_first_last(void) {
     for (int i = 0; i < 4; i++) UnsafeArray_Add(arr, &i);
     UnsafeArray_Remove(arr, 0);
     ASSERT(arr->count == 3);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int) == 1);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 1);
     UnsafeArray_Remove(arr, 2);
     ASSERT(arr->count == 2);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int) == 2);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 2);
     UnsafeArray_Destroy(arr);
     PASS();
 }
@@ -139,10 +139,10 @@ static void test_array_pointers(void) {
     int *pa = &a, *pb = &b;
     UnsafeArray_Add(arr, &pa);
     UnsafeArray_Add(arr, &pb);
-    ASSERT(UnsafeArray_GetValue(arr, 0, int *) == &a);
-    ASSERT(UnsafeArray_GetValue(arr, 1, int *) == &b);
-    ASSERT(*UnsafeArray_GetValue(arr, 0, int *) == 10);
-    ASSERT(*UnsafeArray_GetValue(arr, 1, int *) == 20);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int *) == &a);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int *) == &b);
+    ASSERT(*UnsafeArray_GetDeref(arr, 0, int *) == 10);
+    ASSERT(*UnsafeArray_GetDeref(arr, 1, int *) == 20);
     UnsafeArray_Destroy(arr);
     PASS();
 }
