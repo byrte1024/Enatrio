@@ -234,6 +234,111 @@ static void test_class_free_payload_safe(void) {
     PASS();
 }
 
+// -- Payload macro tests --
+
+static void test_class_payload_set_pointer(void) {
+    TEST("class: Payload_SetPointer stores pointer directly");
+    int val = 42;
+    int *ptr = &val;
+    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    Payload_SetPointer(&msg, "p", ptr);
+    int *got = (int*)UnsafeDictionary_SGetValue(msg.data_dict, "p", void*);
+    ASSERT(got == ptr);
+    ASSERT(*got == 42);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_payload_set_pointer_to(void) {
+    TEST("class: Payload_SetPointerTo stores address of variable");
+    int val = 99;
+    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    Payload_SetPointerTo(&msg, "v", val);
+    int *got = (int*)UnsafeDictionary_SGetValue(msg.data_dict, "v", void*);
+    ASSERT(got == &val);
+    ASSERT(*got == 99);
+    // mutation through pointer reflects in original
+    *got = 200;
+    ASSERT(val == 200);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_payload_set_pointer_to_value(void) {
+    TEST("class: Payload_SetPointerToValue creates stack local");
+    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    Payload_SetPointerToValue(&msg, "x", int, 77);
+    int *got = (int*)UnsafeDictionary_SGetValue(msg.data_dict, "x", void*);
+    ASSERT(*got == 77);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_payload_set_pointer_to_value_survives(void) {
+    TEST("class: Payload_SetPointerToValue survives to dispatch");
+    int result = 0;
+    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    Payload_SetPointerToValue(&msg, "a", int, 30);
+    Payload_SetPointerToValue(&msg, "b", int, 12);
+    Payload_SetPointer(&msg, "out", &result);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(result == 42);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_payload_set_pointer_to_value_multiple_types(void) {
+    TEST("class: Payload_SetPointerToValue with different types");
+    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    Payload_SetPointerToValue(&msg, "i", int, 10);
+    Payload_SetPointerToValue(&msg, "f", float, 3.14f);
+    Payload_SetPointerToValue(&msg, "c", char, 'A');
+    int *gi = (int*)UnsafeDictionary_SGetValue(msg.data_dict, "i", void*);
+    float *gf = (float*)UnsafeDictionary_SGetValue(msg.data_dict, "f", void*);
+    char *gc = (char*)UnsafeDictionary_SGetValue(msg.data_dict, "c", void*);
+    ASSERT(*gi == 10);
+    ASSERT(*gf > 3.13f && *gf < 3.15f);
+    ASSERT(*gc == 'A');
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_payload_overwrite_not_allowed(void) {
+    TEST("class: duplicate key in payload returns -1");
+    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    int a = 5;
+    Payload_SetPointerTo(&msg, "k", a);
+    // SSet returns -1 on duplicate
+    int b = 10;
+    void *tmp = &b;
+    int ret = UnsafeDictionary_SSet(msg.data_dict, "k", &tmp);
+    ASSERT(ret == -1);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_payload_mixed_macros(void) {
+    TEST("class: mix all three Payload_ macros in one dispatch");
+    int heap_val = 100;
+    int *heap_ptr = &heap_val;
+    int stack_var = 200;
+    int result = 0;
+
+    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    // "a" via SetPointer (existing pointer)
+    Payload_SetPointer(&msg, "a", heap_ptr);
+    // "b" via SetPointerTo (address of local)
+    Payload_SetPointerTo(&msg, "b", stack_var);
+    // "out" via SetPointer
+    Payload_SetPointer(&msg, "out", &result);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(result == 300);
+    FreePayload(&msg);
+    PASS();
+}
+
 // -- Runner --
 
 static void run_class_tests(void) {
@@ -261,7 +366,14 @@ static void run_class_tests(void) {
     test_class_dispatch_empty_mid();
     test_class_dispatch_null_payload();
 
-    LOG_INFO("=== Payload Tests ===");
+    LOG_INFO("=== Payload Macro Tests ===");
     test_class_payload_initial_state();
     test_class_free_payload_safe();
+    test_class_payload_set_pointer();
+    test_class_payload_set_pointer_to();
+    test_class_payload_set_pointer_to_value();
+    test_class_payload_set_pointer_to_value_survives();
+    test_class_payload_set_pointer_to_value_multiple_types();
+    test_class_payload_overwrite_not_allowed();
+    test_class_payload_mixed_macros();
 }

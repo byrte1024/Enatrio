@@ -9,6 +9,7 @@
 #include "cts/UnsafeDictionaryTests.h"
 #include "cts/UnsafeArrayLINQTests.h"
 #include "cts/UnsafeHashMapTests.h"
+#include "cts/UtilsTests.h"
 #include "cts/ClassTests.h"
 
 int main(void) {
@@ -19,6 +20,7 @@ int main(void) {
     run_unsafe_dictionary_tests();
     run_unsafe_array_linq_tests();
     run_unsafe_hashmap_tests();
+    run_utils_tests();
     run_class_tests();
 
     LOG_INFO("=== Results: %d/%d passed ===", tests_passed, tests_run);
