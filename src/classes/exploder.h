@@ -11,6 +11,15 @@ DECLARE_MID(ShimmiShimmiYea);
 MESSAGE_HANDLER_BEGIN(ShimmiShimmiYea)
 
     MH_ExtractDeref(Strength, float);
+
+    if(Strength > 7){
+        LOG_INFO("Woah, calm down big boy");
+    }
+
+    if(Strength < 1){
+        LOG_INFO("Thats your best try?");
+    }
+
     LOG_INFO("Strength: %f", Strength);
 
 MESSAGE_HANDLER_END()
