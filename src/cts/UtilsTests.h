@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../tests.h"
-#include "class.h"
+#include "Class.h"
 
 // -- CAT macro tests --
 

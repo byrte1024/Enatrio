@@ -8,7 +8,7 @@
 #include <raylib.h>
 
 #include "utils.h"
-#include "cts/class.h"
+#include "cts/Class.h"
 
 int main() {
   START_LOGGING("game.log", LOG_INFO);
