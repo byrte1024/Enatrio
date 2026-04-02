@@ -266,3 +266,205 @@ static void UnsafeHashMap_Log(UnsafeHashMap *map, UnsafeHashMapFormatter fmt_val
     } \
     UnsafeHashMap_Log(map, _uhmlf_fn, string_keys); \
 } while (0)
+
+// ============================================================
+// UnsafeVariedHashMap -- hash map with varied value sizes
+// ============================================================
+
+typedef struct UnsafeVariedHashEntry {
+    void *key;
+    uint32_t key_len;
+    int32_t value;  // index into entries array, or UNSAFEHASHMAP_EMPTY / DELETED
+} UnsafeVariedHashEntry;
+
+typedef struct UnsafeVariedHashEntryInfo {
+    uint32_t offset; // byte offset into the data buffer
+    uint32_t size;   // size of this value in bytes
+} UnsafeVariedHashEntryInfo;
+
+typedef struct UnsafeVariedHashMap {
+    UnsafeVariedHashEntry *buckets;
+    uint32_t bucket_count;
+    uint32_t entry_count;
+    UnsafeArray *entries; // UnsafeVariedHashEntryInfo index
+    UnsafeArray *data;    // raw byte buffer (element_size = 1)
+} UnsafeVariedHashMap;
+
+static void _UnsafeVariedHashMap_InitBuckets(UnsafeVariedHashEntry *buckets, uint32_t count) {
+    for (uint32_t i = 0; i < count; i++) {
+        buckets[i].key = NULL;
+        buckets[i].key_len = 0;
+        buckets[i].value = UNSAFEHASHMAP_EMPTY;
+    }
+}
+
+static UnsafeVariedHashMap *UnsafeVariedHashMap_Create(uint32_t capacity) {
+    UnsafeVariedHashMap *map = (UnsafeVariedHashMap *)malloc(sizeof(UnsafeVariedHashMap));
+    uint32_t bucket_count = UNSAFEHASHMAP_DEFAULT_CAPACITY;
+    while (bucket_count < capacity * 2) bucket_count *= 2;
+    map->buckets = (UnsafeVariedHashEntry *)malloc(sizeof(UnsafeVariedHashEntry) * bucket_count);
+    map->bucket_count = bucket_count;
+    map->entry_count = 0;
+    map->entries = UnsafeArray_Create(sizeof(UnsafeVariedHashEntryInfo), capacity);
+    map->data = UnsafeArray_Create(1, capacity * 8);
+    _UnsafeVariedHashMap_InitBuckets(map->buckets, bucket_count);
+    return map;
+}
+
+static void UnsafeVariedHashMap_Destroy(UnsafeVariedHashMap *map) {
+    for (uint32_t i = 0; i < map->bucket_count; i++) {
+        if (map->buckets[i].key != NULL) {
+            free(map->buckets[i].key);
+        }
+    }
+    free(map->buckets);
+    UnsafeArray_Destroy(map->entries);
+    UnsafeArray_Destroy(map->data);
+    free(map);
+}
+
+static uint32_t _UnsafeVariedHashMap_FindSlot(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    uint32_t hash = _UnsafeHashMap_Hash(key, key_len);
+    uint32_t idx = hash & (map->bucket_count - 1);
+    uint32_t first_deleted = map->bucket_count;
+
+    for (uint32_t i = 0; i < map->bucket_count; i++) {
+        uint32_t probe = (idx + i) & (map->bucket_count - 1);
+        UnsafeVariedHashEntry *e = &map->buckets[probe];
+
+        if (e->value == UNSAFEHASHMAP_EMPTY) {
+            return (first_deleted < map->bucket_count) ? first_deleted : probe;
+        }
+
+        if (e->value == UNSAFEHASHMAP_DELETED) {
+            if (first_deleted == map->bucket_count) first_deleted = probe;
+            continue;
+        }
+
+        if (e->key_len == key_len && memcmp(e->key, key, key_len) == 0) {
+            return probe;
+        }
+    }
+
+    return (first_deleted < map->bucket_count) ? first_deleted : map->bucket_count;
+}
+
+static void _UnsafeVariedHashMap_Rehash(UnsafeVariedHashMap *map) {
+    uint32_t old_count = map->bucket_count;
+    UnsafeVariedHashEntry *old_buckets = map->buckets;
+
+    uint32_t new_count = old_count * 2;
+    map->buckets = (UnsafeVariedHashEntry *)malloc(sizeof(UnsafeVariedHashEntry) * new_count);
+    map->bucket_count = new_count;
+    _UnsafeVariedHashMap_InitBuckets(map->buckets, new_count);
+
+    for (uint32_t i = 0; i < old_count; i++) {
+        UnsafeVariedHashEntry *old = &old_buckets[i];
+        if (old->value < 0) {
+            if (old->key != NULL) free(old->key);
+            continue;
+        }
+        uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, old->key, old->key_len);
+        map->buckets[slot] = *old;
+    }
+
+    free(old_buckets);
+}
+
+// Inserts a key-value pair with a specified value size. Returns -1 if key already exists.
+static int UnsafeVariedHashMap_Set(UnsafeVariedHashMap *map, const void *key, uint32_t key_len, const void *value, uint32_t value_size) {
+    if (key_len > UNSAFEHASHMAP_MAX_KEY_LEN) return -1;
+
+    if ((map->entry_count + 1) * UNSAFEHASHMAP_LOAD_FACTOR_DEN >
+        map->bucket_count * UNSAFEHASHMAP_LOAD_FACTOR_NUM) {
+        _UnsafeVariedHashMap_Rehash(map);
+    }
+
+    uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
+    UnsafeVariedHashEntry *e = &map->buckets[slot];
+
+    if (e->value >= 0 && e->key_len == key_len && memcmp(e->key, key, key_len) == 0) {
+        return -1;
+    }
+
+    e->key = malloc(key_len);
+    memcpy(e->key, key, key_len);
+    e->key_len = key_len;
+
+    UnsafeVariedHashEntryInfo info;
+    info.offset = map->data->count;
+    info.size = value_size;
+
+    e->value = (int32_t)map->entries->count;
+    UnsafeArray_Add(map->entries, &info);
+
+    const uint8_t *src = (const uint8_t *)value;
+    for (uint32_t i = 0; i < value_size; i++) {
+        UnsafeArray_Add(map->data, &src[i]);
+    }
+
+    map->entry_count++;
+    return 0;
+}
+
+// Returns a pointer to the value for the given key, or NULL if not found.
+static void *UnsafeVariedHashMap_Get(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
+    UnsafeVariedHashEntry *e = &map->buckets[slot];
+
+    if (e->value < 0) return NULL;
+    if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return NULL;
+
+    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+    return UnsafeArray_Get(map->data, info->offset);
+}
+
+// Returns the size of the value for the given key, or 0 if not found.
+static uint32_t UnsafeVariedHashMap_GetSize(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
+    UnsafeVariedHashEntry *e = &map->buckets[slot];
+
+    if (e->value < 0) return 0;
+    if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return 0;
+
+    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+    return info->size;
+}
+
+// Returns 1 if the key exists, 0 otherwise.
+static int UnsafeVariedHashMap_Has(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    return UnsafeVariedHashMap_Get(map, key, key_len) != NULL;
+}
+
+// Removes a key. Returns 0 on success, -1 if not found.
+static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
+    UnsafeVariedHashEntry *e = &map->buckets[slot];
+
+    if (e->value < 0) return -1;
+    if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return -1;
+
+    free(e->key);
+    e->key = NULL;
+    e->key_len = 0;
+    e->value = UNSAFEHASHMAP_DELETED;
+    map->entry_count--;
+    return 0;
+}
+
+#define UnsafeVariedHashMap_GetValue(map, key, key_len, type) \
+    (*(type *)UnsafeVariedHashMap_Get(map, key, key_len))
+
+#define UnsafeVariedHashMap_SetValue(map, key, key_len, type, value) do { \
+    type _uvhm_tmp = (value); \
+    UnsafeVariedHashMap_Set(map, key, key_len, &_uvhm_tmp, sizeof(type)); \
+} while (0)
+
+// String literal key convenience macros
+#define UnsafeVariedHashMap_SSet(map, str_key, value_ptr, value_size) UnsafeVariedHashMap_Set(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), value_ptr, value_size)
+#define UnsafeVariedHashMap_SGet(map, str_key)                       UnsafeVariedHashMap_Get(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+#define UnsafeVariedHashMap_SGetSize(map, str_key)                   UnsafeVariedHashMap_GetSize(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+#define UnsafeVariedHashMap_SHas(map, str_key)                       UnsafeVariedHashMap_Has(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+#define UnsafeVariedHashMap_SRemove(map, str_key)                    UnsafeVariedHashMap_Remove(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+#define UnsafeVariedHashMap_SGetValue(map, str_key, type)            UnsafeVariedHashMap_GetValue(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
+#define UnsafeVariedHashMap_SSetValue(map, str_key, type, value)     UnsafeVariedHashMap_SetValue(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)

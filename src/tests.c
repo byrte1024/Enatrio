@@ -9,6 +9,8 @@
 #include "cts/UnsafeDictionaryTests.h"
 #include "cts/UnsafeArrayLINQTests.h"
 #include "cts/UnsafeHashMapTests.h"
+#include "cts/UnsafeVariedDictionaryTests.h"
+#include "cts/UnsafeVariedHashMapTests.h"
 #include "cts/UtilsTests.h"
 #include "cts/ClassTests.h"
 
@@ -20,6 +22,8 @@ int main(void) {
     run_unsafe_dictionary_tests();
     run_unsafe_array_linq_tests();
     run_unsafe_hashmap_tests();
+    run_unsafe_varied_dictionary_tests();
+    run_unsafe_varied_hashmap_tests();
     run_utils_tests();
     run_class_tests();
 

@@ -4,6 +4,7 @@
 #include <stdio.h>
 
 #include "UnsafeDictionary.h"
+#include "UnsafeHashMap.h"
 
 typedef uint16_t ClassID;
 #define CLASSID_MAX UINT16_MAX
@@ -12,16 +13,10 @@ typedef uint16_t ClassID;
 typedef const char MessageID[64];
 #define MESSAGEID_EMPTY ((const char[64]) {0})
 
-typedef struct MessageDefinition {
-
-    MessageID mid; //ID of the message, must be globally unique. allows up to 64 characters.
-
-} MessageDefinition;
-
 typedef struct MessagePayload {
     MessageID mid;
     ClassID cid_target;
-    UnsafeDictionary* data_dict; //KvP of data, must all be pointers or primitives since NO garbage collection is done
+    UnsafeVariedHashMap* data; //KvP of data, values stored directly by copy. NO garbage collection.
     uint8_t result; //any result not 0 is a failure, different result values are different fail reasons
     
 } MessagePayload;
@@ -219,37 +214,212 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     memcpy(payload.mid, mid, sizeof(MessageID));
     payload.result = MESSAGE_RESULT_NOTSENT;
 
-    payload.data_dict = UnsafeDictionary_Create(sizeof(void*), 8);
-    if (payload.data_dict == NULL) {
-        LOG_ERROR("Failed to allocate payload data dictionary.");
+    payload.data = UnsafeVariedHashMap_Create(8);
+    if (payload.data == NULL) {
+        LOG_ERROR("Failed to allocate payload data map.");
         return payload;
     }
 
     return payload;
 }
 
-// Sets a key to a pointer value directly. The argument must already be a pointer.
-//   Payload_SetPointer(payload, "name", my_ptr);
+// Stores a value by copy into the payload. Any type, any size.
+//   Payload_SetValue(payload, "health", int, 100);
+#define Payload_SetValue(payload, str_key, type, value) do { \
+    type _psv_tmp = (value); \
+    UnsafeVariedHashMap_SSet((payload)->data, str_key, &_psv_tmp, sizeof(type)); \
+} while (0)
+
+// Stores a pointer (void*) into the payload by copy.
+//   Payload_SetPointer(payload, "out", &result);
 #define Payload_SetPointer(payload, str_key, ptr) do { \
     void *_pp_tmp = (ptr); \
-    UnsafeDictionary_SSet((payload)->data_dict, str_key, &_pp_tmp); \
+    UnsafeVariedHashMap_SSet((payload)->data, str_key, &_pp_tmp, sizeof(void*)); \
 } while (0)
 
-// Sets a key to a pointer to the given variable (auto-adds &).
-//   Payload_SetPointerTo(payload, "count", my_int);
-#define Payload_SetPointerTo(payload, str_key, var) do { \
-    void *_ppt_tmp = &(var); \
-    UnsafeDictionary_SSet((payload)->data_dict, str_key, &_ppt_tmp); \
-} while (0)
+// Creates a stack-local variable and stores a pointer to it in the payload.
+// The variable lives until the enclosing scope ends.
+//   Payload_SetLocalPointer(payload, "out", int, 0);
+#define Payload_SetLocalPointer(payload, str_key, type, value) \
+    type BAT2(_pslp_, __LINE__) = (value); \
+    Payload_SetPointer(payload, str_key, &BAT2(_pslp_, __LINE__))
 
-// Sets a key to a stack-local variable. Lives until the enclosing scope ends.
-//   Payload_SetPointerToValue(payload, "a", int, 4);
-#define Payload_SetPointerToValue(payload, str_key, type, value) \
-    type BAT2(_pptv_, __LINE__) = (value); \
-    Payload_SetPointerTo(payload, str_key, BAT2(_pptv_, __LINE__))
+// ============================================================
+// Class definition macros
+// ============================================================
+
+// Declares class ID and name globals.
+//   BEGIN_CLASS(Exploder, 0x22AB)
+// Expands to:
+//   inline const ClassID CID_Exploder = (ClassID)(0x22AB);
+//   inline const char CLASSNAME_Exploder[CLASS_MAXNAMELENGTH] = "Exploder";
+#define BEGIN_CLASS(id) \
+    inline const ClassID BAT2(CID_, TYPE) = (ClassID)(id); \
+    inline const char BAT2(CLASSNAME_, TYPE)[CLASS_MAXNAMELENGTH] = BSTR(TYPE)
+
+// Declares a static MessageID for a class. Uses TYPE.
+//   DECLARE_MID(Detonate)
+// Expands to (with #define TYPE Exploder):
+//   static MessageID MID_Exploder_Detonate = "Exploder.Detonate";
+#define DECLARE_MID(msgname) \
+    static MessageID BAT4(MID_, TYPE, _, msgname) = BSTR(TYPE) "." BSTR(msgname)
+
+// ============================================================
+// Message handler macros
+// ============================================================
+
+// Opens a message handler function. Uses TYPE.
+//   MESSAGE_HANDLER_BEGIN(ShimmiShimmiYea)
+// Expands to (with #define TYPE Exploder):
+//   static void MESSAGE_HANDLER_Exploder_ShimmiShimmiYea(MessagePayload* payload) {
+//       payload->result = MESSAGE_RESULT_SUCCESS;
+#define MESSAGE_HANDLER_BEGIN(handlername) \
+    static void BAT4(MESSAGE_HANDLER_, TYPE, _, handlername)(MessagePayload* payload) { \
+        payload->result = MESSAGE_RESULT_SUCCESS;
+
+// Closes a message handler function.
+//   MESSAGE_HANDLER_END()
+#define MESSAGE_HANDLER_END() }
+
+// Extracts a pointer from the payload dict.
+//   MH_EXTRACT_POINTER(Strength, float)
+// Expands to:
+// Extracts a pointer to the stored value (direct, value is in the map).
+//   MH_EXTRACT_POINTER(Strength, float)
+// Expands to:
+//   float* MH_Strength_Ptr = (float*)UnsafeVariedHashMap_SGet(payload->data, "Strength");
+#define MH_EXTRACT_POINTER(paramname, type) \
+    type* BAT3(MH_, paramname, _Ptr) = \
+        (type*)UnsafeVariedHashMap_SGet(payload->data, STR(paramname))
+
+// Extracts a copy of the stored value.
+// Returns INVALID_PARAMS if the key has no data.
+//   MH_EXTRACT_VALUE(Strength, float)
+#define MH_EXTRACT_VALUE(paramname, type) \
+    type* BAT3(_mhev_, paramname, _ptr) = \
+        (type*)UnsafeVariedHashMap_SGet(payload->data, STR(paramname)); \
+    if (BAT3(_mhev_, paramname, _ptr) == NULL) { \
+        payload->result = MESSAGE_RESULT_INVALID_PARAMS; \
+        return; \
+    } \
+    type BAT3(MH_, paramname, _Val) = *BAT3(_mhev_, paramname, _ptr)
+
+// Extracts a stored void* pointer and casts it to type*.
+// Use when the caller stored a pointer via Payload_SetPointer.
+//   MH_EXTRACT_STORED_PTR(out, int)
+// Gives: int* MH_out_Ptr = *(void**)data, cast to int*
+#define MH_EXTRACT_STORED_PTR(paramname, type) \
+    type* BAT3(MH_, paramname, _Ptr) = \
+        (type*)UnsafeVariedHashMap_SGetValue(payload->data, STR(paramname), void*)
+
+// Checks that an extracted pointer is not NULL, returns INVALID_PARAMS if so.
+//   MH_REQUIRE_POINTER(Strength)
+#define MH_REQUIRE_POINTER(paramname) \
+    if (BAT3(MH_, paramname, _Ptr) == NULL) { \
+        payload->result = MESSAGE_RESULT_INVALID_PARAMS; \
+        return; \
+    }
+
+// Bool expression: true if the key exists in the payload data.
+//   if (MH_HAS_KEY(Strength)) { ... }
+#define MH_HAS_KEY(paramname) \
+    (UnsafeVariedHashMap_SHas(payload->data, STR(paramname)))
+
+// Bool expression: true if the key exists and has non-NULL data.
+//   if (MH_HAS_VALID_PTR(Strength)) { ... }
+#define MH_HAS_VALID_PTR(paramname) \
+    (MH_HAS_KEY(paramname) && \
+     UnsafeVariedHashMap_SGet(payload->data, STR(paramname)) != NULL)
+
+// Checks that the payload has a key, returns MISSING_PARAMS if not.
+//   MH_REQUIRE_KEY(Strength)
+#define MH_REQUIRE_KEY(paramname) \
+    if (!UnsafeVariedHashMap_SHas(payload->data, STR(paramname))) { \
+        payload->result = MESSAGE_RESULT_MISSING_PARAMS; \
+        return; \
+    }
+
+// Extracts a pointer to stored value and requires the key.
+//   MH_REQUIRE_PARAM(Strength, float)
+#define MH_REQUIRE_PARAM(paramname, type) \
+    MH_REQUIRE_KEY(paramname) \
+    MH_EXTRACT_POINTER(paramname, type)
+
+// Extracts a value copy and requires the key.
+//   MH_REQUIRE_VALUE(Strength, float)
+#define MH_REQUIRE_VALUE(paramname, type) \
+    MH_REQUIRE_KEY(paramname) \
+    MH_EXTRACT_VALUE(paramname, type)
+
+// Extracts a stored pointer and requires the key + non-NULL.
+//   MH_REQUIRE_STORED_PTR(out, int)
+#define MH_REQUIRE_STORED_PTR(paramname, type) \
+    MH_REQUIRE_KEY(paramname) \
+    MH_EXTRACT_STORED_PTR(paramname, type); \
+    MH_REQUIRE_POINTER(paramname)
+
+// ============================================================
+// CanReceiveMID helper macros
+// ============================================================
+
+// Opens a CanReceiveMID function. Uses TYPE.
+//   CAN_RECEIVE_BEGIN()
+#define CAN_RECEIVE_BEGIN() \
+    static bool BAT2(TYPE, _CanReceiveMID)(MessageID mid) {
+
+// Adds a MID check inside CanReceiveMID. Uses TYPE.
+//   CAN_RECEIVE_MID(Detonate)
+#define CAN_RECEIVE_MID(msgname) \
+    if (strcmp(mid, BAT4(MID_, TYPE, _, msgname)) == 0) return true;
+
+// Closes CanReceiveMID (returns false for unrecognized).
+//   CAN_RECEIVE_END()
+#define CAN_RECEIVE_END() \
+        return false; \
+    }
+
+// ============================================================
+// ReceiveMessage router macros
+// ============================================================
+
+// Opens a ReceiveMessage function. Uses TYPE.
+//   RECEIVE_MESSAGE_BEGIN()
+#define RECEIVE_MESSAGE_BEGIN() \
+    static void BAT2(TYPE, _ReceiveMessage)(MessagePayload* payload) { \
+        if (strcmp(payload->mid, "\0") == 0) { (void)0; }
+
+// Routes a MID to its handler (else-if chain). Uses TYPE.
+//   RECEIVE_MESSAGE_ROUTE(Detonate)
+#define RECEIVE_MESSAGE_ROUTE(msgname) \
+        else if (strcmp(payload->mid, BAT4(MID_, TYPE, _, msgname)) == 0) { \
+            BAT4(MESSAGE_HANDLER_, TYPE, _, msgname)(payload); \
+        }
+
+// Closes ReceiveMessage (else branch sets NOT_SUPPORTED for unmatched).
+//   RECEIVE_MESSAGE_END()
+#define RECEIVE_MESSAGE_END() \
+        else { payload->result = MESSAGE_RESULT_NOT_SUPPORTED; } \
+    }
+
+// ============================================================
+// ClassDef builder macro
+// ============================================================
+
+// Creates a ClassDefinition builder function. Uses TYPE.
+//   CLASSDEF()
+// Expands to a static function Exploder_ClassDef() (with #define TYPE Exploder).
+#define CLASSDEF() \
+    static ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
+        ClassDefinition _cd = {0}; \
+        _cd.cid = BAT2(CID_, TYPE); \
+        strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
+        _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
+        _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
+        return _cd; \
+    }
 
 static inline void FreePayload(MessagePayload* payload) {
-    if (payload->data_dict != NULL) {
-        UnsafeDictionary_Destroy(payload->data_dict);
+    if (payload->data != NULL) {
+        UnsafeVariedHashMap_Destroy(payload->data);
     }
 }

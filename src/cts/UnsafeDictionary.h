@@ -288,3 +288,151 @@ static void UnsafeDictionary_Log(UnsafeDictionary *dict, UnsafeDictFormatter fmt
     } \
     UnsafeDictionary_Log(dict, _udlf_fn, string_keys); \
 } while (0)
+
+// ============================================================
+// UnsafeVariedDictionary -- trie dictionary with varied value sizes
+// ============================================================
+
+typedef struct UnsafeVariedEntry {
+    uint32_t offset; // byte offset into the data buffer
+    uint32_t size;   // size of this value in bytes
+} UnsafeVariedEntry;
+
+typedef struct UnsafeVariedDictionary {
+    UnsafeArray *nodes;   // trie nodes (UnsafeDictNode)
+    UnsafeArray *entries; // UnsafeVariedEntry index
+    UnsafeArray *data;    // raw byte buffer (element_size = 1)
+} UnsafeVariedDictionary;
+
+static UnsafeVariedDictionary *UnsafeVariedDictionary_Create(uint32_t capacity) {
+    UnsafeVariedDictionary *dict = (UnsafeVariedDictionary *)malloc(sizeof(UnsafeVariedDictionary));
+    dict->entries = UnsafeArray_Create(sizeof(UnsafeVariedEntry), capacity);
+    dict->data = UnsafeArray_Create(1, capacity * 8);
+    dict->nodes = UnsafeArray_Create(sizeof(UnsafeDictNode), 64);
+    UnsafeDictNode root = UnsafeDictNode_Empty();
+    UnsafeArray_Add(dict->nodes, &root);
+    return dict;
+}
+
+static void UnsafeVariedDictionary_Destroy(UnsafeVariedDictionary *dict) {
+    UnsafeArray_Destroy(dict->nodes);
+    UnsafeArray_Destroy(dict->entries);
+    UnsafeArray_Destroy(dict->data);
+    free(dict);
+}
+
+// Walks the trie. Same logic as UnsafeDictionary_Walk.
+static int32_t UnsafeVariedDictionary_Walk(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len, int create) {
+    if (key_len > UNSAFEDICT_MAX_KEY_LEN) return UNSAFEDICT_EMPTY;
+
+    const uint8_t *bytes = (const uint8_t *)key;
+    int32_t current = 0;
+
+    for (uint32_t i = 0; i < key_len; i++) {
+        uint8_t byte = bytes[i];
+        for (int shift = 6; shift >= 0; shift -= 2) {
+            uint8_t pair = (byte >> shift) & 0x03;
+
+            UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)current);
+            int32_t next = node->children[pair];
+
+            if (next == UNSAFEDICT_EMPTY) {
+                if (!create) return UNSAFEDICT_EMPTY;
+                UnsafeDictNode empty = UnsafeDictNode_Empty();
+                next = (int32_t)dict->nodes->count;
+                UnsafeArray_Add(dict->nodes, &empty);
+                node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)current);
+                node->children[pair] = next;
+            }
+
+            current = next;
+        }
+    }
+
+    return current;
+}
+
+// Inserts a key-value pair with a specified value size. Returns -1 if key already exists.
+static int UnsafeVariedDictionary_Set(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len, const void *value, uint32_t value_size) {
+    if (key_len > UNSAFEDICT_MAX_KEY_LEN) return -1;
+
+    int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 1);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+
+    if (node->value != UNSAFEDICT_EMPTY) return -1;
+
+    // Record entry
+    UnsafeVariedEntry entry;
+    entry.offset = dict->data->count;
+    entry.size = value_size;
+
+    node->value = (int32_t)dict->entries->count;
+    UnsafeArray_Add(dict->entries, &entry);
+
+    // Append raw bytes
+    const uint8_t *src = (const uint8_t *)value;
+    for (uint32_t i = 0; i < value_size; i++) {
+        UnsafeArray_Add(dict->data, &src[i]);
+    }
+
+    return 0;
+}
+
+// Returns a pointer to the value for the given key, or NULL if not found.
+static void *UnsafeVariedDictionary_Get(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len) {
+    int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
+    if (node_idx == UNSAFEDICT_EMPTY) return NULL;
+
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    if (node->value == UNSAFEDICT_EMPTY) return NULL;
+
+    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+    return UnsafeArray_Get(dict->data, entry->offset);
+}
+
+// Returns the size of the value for the given key, or 0 if not found.
+static uint32_t UnsafeVariedDictionary_GetSize(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len) {
+    int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
+    if (node_idx == UNSAFEDICT_EMPTY) return 0;
+
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    if (node->value == UNSAFEDICT_EMPTY) return 0;
+
+    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+    return entry->size;
+}
+
+// Returns 1 if the key exists, 0 otherwise.
+static int UnsafeVariedDictionary_Has(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len) {
+    return UnsafeVariedDictionary_Get(dict, key, key_len) != NULL;
+}
+
+// Removes a key. Returns 0 on success, -1 if not found.
+// Note: the data bytes are not reclaimed, only the trie link is cleared.
+static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len) {
+    int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
+    if (node_idx == UNSAFEDICT_EMPTY) return -1;
+
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    if (node->value == UNSAFEDICT_EMPTY) return -1;
+
+    node->value = UNSAFEDICT_EMPTY;
+    return 0;
+}
+
+#define UnsafeVariedDictionary_GetValue(dict, key, key_len, type) \
+    (*(type *)UnsafeVariedDictionary_Get(dict, key, key_len))
+
+#define UnsafeVariedDictionary_SetValue(dict, key, key_len, type, value) do { \
+    type _uvd_tmp = (value); \
+    UnsafeVariedDictionary_Set(dict, key, key_len, &_uvd_tmp, sizeof(type)); \
+} while (0)
+
+// String literal key convenience macros
+#define UnsafeVariedDictionary_SSet(dict, str_key, value_ptr, value_size) UnsafeVariedDictionary_Set(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), value_ptr, value_size)
+#define UnsafeVariedDictionary_SGet(dict, str_key)                       UnsafeVariedDictionary_Get(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+#define UnsafeVariedDictionary_SGetSize(dict, str_key)                   UnsafeVariedDictionary_GetSize(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+#define UnsafeVariedDictionary_SHas(dict, str_key)                       UnsafeVariedDictionary_Has(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+#define UnsafeVariedDictionary_SRemove(dict, str_key)                    UnsafeVariedDictionary_Remove(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+#define UnsafeVariedDictionary_SGetValue(dict, str_key, type)            UnsafeVariedDictionary_GetValue(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
+#define UnsafeVariedDictionary_SSetValue(dict, str_key, type, value)     UnsafeVariedDictionary_SetValue(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)

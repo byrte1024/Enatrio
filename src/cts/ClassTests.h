@@ -5,53 +5,72 @@
 
 // -- Test class: Calculator --
 
-#define CID_CALCULATOR ((ClassID)(1))
+#define TYPE Calculator
 
-static MessageID MID_CALCULATOR_ADD = "Calculator.Add";
-static MessageID MID_CALCULATOR_SUB = "Calculator.Sub";
-static MessageID MID_CALCULATOR_MUL = "Calculator.Mul";
+BEGIN_CLASS(0x0001);
 
-static bool Calculator_CanReceiveMID(MessageID mid) {
-    if (strcmp(mid, MID_CALCULATOR_ADD) == 0) return true;
-    if (strcmp(mid, MID_CALCULATOR_SUB) == 0) return true;
-    if (strcmp(mid, MID_CALCULATOR_MUL) == 0) return true;
-    return false;
-}
+DECLARE_MID(Add);
+DECLARE_MID(Sub);
+DECLARE_MID(Mul);
+DECLARE_MID(AddInPlace);
+DECLARE_MID(AddResult);
 
-static void Calculator_ReceiveMessage(MessagePayload* payload) {
-    if (!UnsafeDictionary_SHas(payload->data_dict, "a") ||
-        !UnsafeDictionary_SHas(payload->data_dict, "b") ||
-        !UnsafeDictionary_SHas(payload->data_dict, "out")) {
-        payload->result = MESSAGE_RESULT_MISSING_PARAMS;
-        return;
-    }
+// Add: reads a,b values, writes to out pointer
+MESSAGE_HANDLER_BEGIN(Add)
+    MH_REQUIRE_VALUE(a, int);
+    MH_REQUIRE_VALUE(b, int);
+    MH_REQUIRE_STORED_PTR(out, int);
+    *MH_out_Ptr = MH_a_Val + MH_b_Val;
+MESSAGE_HANDLER_END()
 
-    int a = *(int*)UnsafeDictionary_SGetValue(payload->data_dict, "a", void*);
-    int b = *(int*)UnsafeDictionary_SGetValue(payload->data_dict, "b", void*);
-    int *out = (int*)UnsafeDictionary_SGetValue(payload->data_dict, "out", void*);
+MESSAGE_HANDLER_BEGIN(Sub)
+    MH_REQUIRE_VALUE(a, int);
+    MH_REQUIRE_VALUE(b, int);
+    MH_REQUIRE_STORED_PTR(out, int);
+    *MH_out_Ptr = MH_a_Val - MH_b_Val;
+MESSAGE_HANDLER_END()
 
-    if (strcmp(payload->mid, MID_CALCULATOR_ADD) == 0) {
-        *out = a + b;
-    } else if (strcmp(payload->mid, MID_CALCULATOR_SUB) == 0) {
-        *out = a - b;
-    } else if (strcmp(payload->mid, MID_CALCULATOR_MUL) == 0) {
-        *out = a * b;
-    } else {
-        payload->result = MESSAGE_RESULT_INVALID_MID;
-        return;
-    }
+MESSAGE_HANDLER_BEGIN(Mul)
+    MH_REQUIRE_VALUE(a, int);
+    MH_REQUIRE_VALUE(b, int);
+    MH_REQUIRE_STORED_PTR(out, int);
+    *MH_out_Ptr = MH_a_Val * MH_b_Val;
+MESSAGE_HANDLER_END()
 
-    payload->result = MESSAGE_RESULT_SUCCESS;
-}
+// AddInPlace: takes a pointer to target, adds b value into it
+MESSAGE_HANDLER_BEGIN(AddInPlace)
+    MH_REQUIRE_STORED_PTR(target, int);
+    MH_REQUIRE_VALUE(b, int);
+    *MH_target_Ptr += MH_b_Val;
+MESSAGE_HANDLER_END()
 
-static ClassDefinition Calculator_ClassDef(void) {
-    ClassDefinition def = {0};
-    def.cid = CID_CALCULATOR;
-    strncpy(def.classname, "Calculator", CLASS_MAXNAMELENGTH - 1);
-    def.CanReceiveMID = Calculator_CanReceiveMID;
-    def.ReceiveMessage = Calculator_ReceiveMessage;
-    return def;
-}
+// AddResult: reads a,b values, writes result back into the payload dict
+MESSAGE_HANDLER_BEGIN(AddResult)
+    MH_REQUIRE_VALUE(a, int);
+    MH_REQUIRE_VALUE(b, int);
+    int _sum = MH_a_Val + MH_b_Val;
+    UnsafeVariedHashMap_SSet(payload->data, "result", &_sum, sizeof(int));
+MESSAGE_HANDLER_END()
+
+CAN_RECEIVE_BEGIN()
+    CAN_RECEIVE_MID(Add)
+    CAN_RECEIVE_MID(Sub)
+    CAN_RECEIVE_MID(Mul)
+    CAN_RECEIVE_MID(AddInPlace)
+    CAN_RECEIVE_MID(AddResult)
+CAN_RECEIVE_END()
+
+RECEIVE_MESSAGE_BEGIN()
+    RECEIVE_MESSAGE_ROUTE(Add)
+    RECEIVE_MESSAGE_ROUTE(Sub)
+    RECEIVE_MESSAGE_ROUTE(Mul)
+    RECEIVE_MESSAGE_ROUTE(AddInPlace)
+    RECEIVE_MESSAGE_ROUTE(AddResult)
+RECEIVE_MESSAGE_END()
+
+CLASSDEF()
+
+#undef TYPE
 
 // -- Registration tests --
 
@@ -60,8 +79,8 @@ static void test_class_register_calculator(void) {
     BeginClassRegistrations();
     RegisterClass(Calculator_ClassDef());
     EndClassRegistrations();
-    ASSERT(CLASSID_ISREGISTERED(CID_CALCULATOR));
-    ASSERT(strcmp(ClassDefinitions[CID_CALCULATOR].classname, "Calculator") == 0);
+    ASSERT(CLASSID_ISREGISTERED(CID_Calculator));
+    ASSERT(strcmp(ClassDefinitions[CID_Calculator].classname, "Calculator") == 0);
     PASS();
 }
 
@@ -86,9 +105,9 @@ static void test_class_unregistered_cid(void) {
 static void test_class_dispatch_add(void) {
     TEST("class: dispatch Calculator.Add");
     int result = 0;
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    Payload_SetPointerToValue(&msg, "a", int, 10);
-    Payload_SetPointerToValue(&msg, "b", int, 25);
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetValue(&msg, "a", int, 10);
+    Payload_SetValue(&msg, "b", int, 25);
     Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -100,9 +119,9 @@ static void test_class_dispatch_add(void) {
 static void test_class_dispatch_sub(void) {
     TEST("class: dispatch Calculator.Sub");
     int result = 0;
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_SUB);
-    Payload_SetPointerToValue(&msg, "a", int, 100);
-    Payload_SetPointerToValue(&msg, "b", int, 37);
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Sub);
+    Payload_SetValue(&msg, "a", int, 100);
+    Payload_SetValue(&msg, "b", int, 37);
     Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -114,9 +133,9 @@ static void test_class_dispatch_sub(void) {
 static void test_class_dispatch_mul(void) {
     TEST("class: dispatch Calculator.Mul");
     int result = 0;
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_MUL);
-    Payload_SetPointerToValue(&msg, "a", int, 6);
-    Payload_SetPointerToValue(&msg, "b", int, 7);
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Mul);
+    Payload_SetValue(&msg, "a", int, 6);
+    Payload_SetValue(&msg, "b", int, 7);
     Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -128,9 +147,9 @@ static void test_class_dispatch_mul(void) {
 static void test_class_dispatch_negative_result(void) {
     TEST("class: Sub with negative result");
     int result = 0;
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_SUB);
-    Payload_SetPointerToValue(&msg, "a", int, 3);
-    Payload_SetPointerToValue(&msg, "b", int, 10);
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Sub);
+    Payload_SetValue(&msg, "a", int, 3);
+    Payload_SetValue(&msg, "b", int, 10);
     Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -142,9 +161,9 @@ static void test_class_dispatch_negative_result(void) {
 static void test_class_dispatch_zeroes(void) {
     TEST("class: Add with zeroes");
     int result = 99;
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    Payload_SetPointerToValue(&msg, "a", int, 0);
-    Payload_SetPointerToValue(&msg, "b", int, 0);
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetValue(&msg, "a", int, 0);
+    Payload_SetValue(&msg, "b", int, 0);
     Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -153,12 +172,86 @@ static void test_class_dispatch_zeroes(void) {
     PASS();
 }
 
+// -- Pointer and dict-output tests --
+
+static void test_class_dispatch_add_in_place(void) {
+    TEST("class: AddInPlace modifies target pointer");
+    int accumulator = 50;
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddInPlace);
+    Payload_SetPointer(&msg, "target", &accumulator);
+    Payload_SetValue(&msg, "b", int, 30);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(accumulator == 80);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_add_in_place_multiple(void) {
+    TEST("class: AddInPlace called multiple times on same target");
+    int total = 0;
+    for (int i = 0; i < 5; i++) {
+        MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddInPlace);
+        Payload_SetPointer(&msg, "target", &total);
+        Payload_SetValue(&msg, "b", int, 10);
+        DispatchMessage(&msg);
+        ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+        FreePayload(&msg);
+    }
+    ASSERT(total == 50);
+    PASS();
+}
+
+static void test_class_dispatch_add_result_in_dict(void) {
+    TEST("class: AddResult writes result into payload dict");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddResult);
+    Payload_SetValue(&msg, "a", int, 17);
+    Payload_SetValue(&msg, "b", int, 25);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    // handler wrote "result" into the dict, read it back
+    ASSERT(UnsafeVariedHashMap_SHas(msg.data, "result"));
+    int sum = UnsafeVariedHashMap_SGetValue(msg.data, "result", int);
+    ASSERT(sum == 42);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_add_result_missing_key(void) {
+    TEST("class: AddResult has no result key before dispatch");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddResult);
+    Payload_SetValue(&msg, "a", int, 1);
+    Payload_SetValue(&msg, "b", int, 2);
+    ASSERT(!UnsafeVariedHashMap_SHas(msg.data, "result"));
+    DispatchMessage(&msg);
+    ASSERT(UnsafeVariedHashMap_SHas(msg.data, "result"));
+    ASSERT(UnsafeVariedHashMap_SGetValue(msg.data, "result", int) == 3);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_pointer_modify_external(void) {
+    TEST("class: pointer lets handler modify caller's struct");
+    typedef struct { int x; int y; } Point;
+    Point p = { 10, 20 };
+    // Use AddInPlace to modify p.x via pointer
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_AddInPlace);
+    Payload_SetPointer(&msg, "target", &p.x);
+    Payload_SetValue(&msg, "b", int, 5);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(p.x == 15);
+    ASSERT(p.y == 20); // y untouched
+    FreePayload(&msg);
+    PASS();
+}
+
 // -- Error handling tests --
 
 static void test_class_dispatch_missing_params(void) {
     TEST("class: dispatch with missing params");
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    Payload_SetPointerToValue(&msg, "a", int, 5);
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetValue(&msg, "a", int, 5);
     // missing "b" and "out"
     DispatchMessage(&msg);
     ASSERT(msg.result == MESSAGE_RESULT_MISSING_PARAMS);
@@ -168,7 +261,7 @@ static void test_class_dispatch_missing_params(void) {
 
 static void test_class_dispatch_invalid_cid(void) {
     TEST("class: dispatch to unregistered CID");
-    MessagePayload msg = PreparePayload(9999, MID_CALCULATOR_ADD);
+    MessagePayload msg = PreparePayload(9999, MID_Calculator_Add);
     DispatchMessage(&msg);
     ASSERT(msg.result == MESSAGE_RESULT_INVALID_CID);
     FreePayload(&msg);
@@ -177,7 +270,7 @@ static void test_class_dispatch_invalid_cid(void) {
 
 static void test_class_dispatch_untyped_cid(void) {
     TEST("class: dispatch to untyped CID 0");
-    MessagePayload msg = PreparePayload(0, MID_CALCULATOR_ADD);
+    MessagePayload msg = PreparePayload(0, MID_Calculator_Add);
     DispatchMessage(&msg);
     ASSERT(msg.result == MESSAGE_RESULT_INVALID_CID);
     FreePayload(&msg);
@@ -187,7 +280,7 @@ static void test_class_dispatch_untyped_cid(void) {
 static void test_class_dispatch_unsupported_mid(void) {
     TEST("class: dispatch unsupported MID");
     MessageID bad_mid = "Calculator.Divide";
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, bad_mid);
+    MessagePayload msg = PreparePayload(CID_Calculator, bad_mid);
     DispatchMessage(&msg);
     ASSERT(msg.result == MESSAGE_RESULT_NOT_SUPPORTED);
     FreePayload(&msg);
@@ -197,7 +290,7 @@ static void test_class_dispatch_unsupported_mid(void) {
 static void test_class_dispatch_empty_mid(void) {
     TEST("class: dispatch empty MID");
     MessageID empty_mid = "";
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, empty_mid);
+    MessagePayload msg = PreparePayload(CID_Calculator, empty_mid);
     DispatchMessage(&msg);
     ASSERT(msg.result == MESSAGE_RESULT_INVALID_MID);
     FreePayload(&msg);
@@ -215,71 +308,55 @@ static void test_class_dispatch_null_payload(void) {
 
 static void test_class_payload_initial_state(void) {
     TEST("class: payload initial result is NOTSENT");
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     ASSERT(msg.result == MESSAGE_RESULT_NOTSENT);
-    ASSERT(msg.data_dict != NULL);
-    ASSERT(msg.cid_target == CID_CALCULATOR);
-    ASSERT(strcmp(msg.mid, MID_CALCULATOR_ADD) == 0);
+    ASSERT(msg.data != NULL);
+    ASSERT(msg.cid_target == CID_Calculator);
+    ASSERT(strcmp(msg.mid, MID_Calculator_Add) == 0);
     FreePayload(&msg);
     PASS();
 }
 
 static void test_class_free_payload_safe(void) {
-    TEST("class: FreePayload on already-freed dict");
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
+    TEST("class: FreePayload on already-freed data");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     FreePayload(&msg);
-    // data_dict is now destroyed, set to NULL manually and free again
-    msg.data_dict = NULL;
+    msg.data = NULL;
     FreePayload(&msg);
     PASS();
 }
 
 // -- Payload macro tests --
 
-static void test_class_payload_set_pointer(void) {
-    TEST("class: Payload_SetPointer stores pointer directly");
-    int val = 42;
-    int *ptr = &val;
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    Payload_SetPointer(&msg, "p", ptr);
-    int *got = (int*)UnsafeDictionary_SGetValue(msg.data_dict, "p", void*);
-    ASSERT(got == ptr);
-    ASSERT(*got == 42);
-    FreePayload(&msg);
-    PASS();
-}
-
-static void test_class_payload_set_pointer_to(void) {
-    TEST("class: Payload_SetPointerTo stores address of variable");
-    int val = 99;
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    Payload_SetPointerTo(&msg, "v", val);
-    int *got = (int*)UnsafeDictionary_SGetValue(msg.data_dict, "v", void*);
-    ASSERT(got == &val);
-    ASSERT(*got == 99);
-    // mutation through pointer reflects in original
-    *got = 200;
-    ASSERT(val == 200);
-    FreePayload(&msg);
-    PASS();
-}
-
-static void test_class_payload_set_pointer_to_value(void) {
-    TEST("class: Payload_SetPointerToValue creates stack local");
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    Payload_SetPointerToValue(&msg, "x", int, 77);
-    int *got = (int*)UnsafeDictionary_SGetValue(msg.data_dict, "x", void*);
+static void test_class_payload_set_value(void) {
+    TEST("class: Payload_SetValue stores value by copy");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetValue(&msg, "x", int, 77);
+    int *got = (int*)UnsafeVariedHashMap_SGet(msg.data, "x");
+    ASSERT(got != NULL);
     ASSERT(*got == 77);
     FreePayload(&msg);
     PASS();
 }
 
-static void test_class_payload_set_pointer_to_value_survives(void) {
-    TEST("class: Payload_SetPointerToValue survives to dispatch");
+static void test_class_payload_set_pointer(void) {
+    TEST("class: Payload_SetPointer stores pointer");
+    int val = 42;
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetPointer(&msg, "p", &val);
+    int *got = (int*)UnsafeVariedHashMap_SGetValue(msg.data, "p", void*);
+    ASSERT(got == &val);
+    ASSERT(*got == 42);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_payload_set_value_dispatch(void) {
+    TEST("class: Payload_SetValue survives to dispatch");
     int result = 0;
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    Payload_SetPointerToValue(&msg, "a", int, 30);
-    Payload_SetPointerToValue(&msg, "b", int, 12);
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetValue(&msg, "a", int, 30);
+    Payload_SetValue(&msg, "b", int, 12);
     Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -288,49 +365,42 @@ static void test_class_payload_set_pointer_to_value_survives(void) {
     PASS();
 }
 
-static void test_class_payload_set_pointer_to_value_multiple_types(void) {
-    TEST("class: Payload_SetPointerToValue with different types");
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    Payload_SetPointerToValue(&msg, "i", int, 10);
-    Payload_SetPointerToValue(&msg, "f", float, 3.14f);
-    Payload_SetPointerToValue(&msg, "c", char, 'A');
-    int *gi = (int*)UnsafeDictionary_SGetValue(msg.data_dict, "i", void*);
-    float *gf = (float*)UnsafeDictionary_SGetValue(msg.data_dict, "f", void*);
-    char *gc = (char*)UnsafeDictionary_SGetValue(msg.data_dict, "c", void*);
-    ASSERT(*gi == 10);
-    ASSERT(*gf > 3.13f && *gf < 3.15f);
-    ASSERT(*gc == 'A');
+static void test_class_payload_multiple_types(void) {
+    TEST("class: Payload_SetValue with different types");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetValue(&msg, "i", int, 10);
+    Payload_SetValue(&msg, "f", float, 3.14f);
+    Payload_SetValue(&msg, "c", char, 'A');
+
+    ASSERT(UnsafeVariedHashMap_SGetValue(msg.data, "i", int) == 10);
+    float fv = UnsafeVariedHashMap_SGetValue(msg.data, "f", float);
+    ASSERT(fv > 3.13f && fv < 3.15f);
+    ASSERT(UnsafeVariedHashMap_SGetValue(msg.data, "c", char) == 'A');
+
+    ASSERT(UnsafeVariedHashMap_SGetSize(msg.data, "i") == sizeof(int));
+    ASSERT(UnsafeVariedHashMap_SGetSize(msg.data, "f") == sizeof(float));
+    ASSERT(UnsafeVariedHashMap_SGetSize(msg.data, "c") == sizeof(char));
     FreePayload(&msg);
     PASS();
 }
 
-static void test_class_payload_overwrite_not_allowed(void) {
+static void test_class_payload_duplicate_key(void) {
     TEST("class: duplicate key in payload returns -1");
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    int a = 5;
-    Payload_SetPointerTo(&msg, "k", a);
-    // SSet returns -1 on duplicate
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetValue(&msg, "k", int, 5);
     int b = 10;
-    void *tmp = &b;
-    int ret = UnsafeDictionary_SSet(msg.data_dict, "k", &tmp);
+    int ret = UnsafeVariedHashMap_SSet(msg.data, "k", &b, sizeof(int));
     ASSERT(ret == -1);
     FreePayload(&msg);
     PASS();
 }
 
-static void test_class_payload_mixed_macros(void) {
-    TEST("class: mix all three Payload_ macros in one dispatch");
-    int heap_val = 100;
-    int *heap_ptr = &heap_val;
-    int stack_var = 200;
+static void test_class_payload_mixed_dispatch(void) {
+    TEST("class: mix SetValue and SetPointer in dispatch");
     int result = 0;
-
-    MessagePayload msg = PreparePayload(CID_CALCULATOR, MID_CALCULATOR_ADD);
-    // "a" via SetPointer (existing pointer)
-    Payload_SetPointer(&msg, "a", heap_ptr);
-    // "b" via SetPointerTo (address of local)
-    Payload_SetPointerTo(&msg, "b", stack_var);
-    // "out" via SetPointer
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    Payload_SetValue(&msg, "a", int, 100);
+    Payload_SetValue(&msg, "b", int, 200);
     Payload_SetPointer(&msg, "out", &result);
     DispatchMessage(&msg);
     ASSERT(MESSAGE_RESULT_ISOK(msg.result));
@@ -358,6 +428,13 @@ static void run_class_tests(void) {
     test_class_dispatch_negative_result();
     test_class_dispatch_zeroes();
 
+    LOG_INFO("=== Pointer and Dict-Output Tests ===");
+    test_class_dispatch_add_in_place();
+    test_class_dispatch_add_in_place_multiple();
+    test_class_dispatch_add_result_in_dict();
+    test_class_dispatch_add_result_missing_key();
+    test_class_dispatch_pointer_modify_external();
+
     LOG_INFO("=== Error Handling Tests ===");
     test_class_dispatch_missing_params();
     test_class_dispatch_invalid_cid();
@@ -369,11 +446,10 @@ static void run_class_tests(void) {
     LOG_INFO("=== Payload Macro Tests ===");
     test_class_payload_initial_state();
     test_class_free_payload_safe();
+    test_class_payload_set_value();
     test_class_payload_set_pointer();
-    test_class_payload_set_pointer_to();
-    test_class_payload_set_pointer_to_value();
-    test_class_payload_set_pointer_to_value_survives();
-    test_class_payload_set_pointer_to_value_multiple_types();
-    test_class_payload_overwrite_not_allowed();
-    test_class_payload_mixed_macros();
+    test_class_payload_set_value_dispatch();
+    test_class_payload_multiple_types();
+    test_class_payload_duplicate_key();
+    test_class_payload_mixed_dispatch();
 }
