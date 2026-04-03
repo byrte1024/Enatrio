@@ -180,6 +180,17 @@ static int UnsafeHashMap_Remove(UnsafeHashMap *map, const void *key, uint32_t ke
     return 0;
 }
 
+// Calls fn(key, key_len, value) for each entry.
+typedef void (*UnsafeHashMapForEachFn)(const void *key, uint32_t key_len, void *value);
+
+static void UnsafeHashMap_ForEach(UnsafeHashMap *map, UnsafeHashMapForEachFn fn) {
+    for (uint32_t i = 0; i < map->bucket_count; i++) {
+        UnsafeHashEntry *e = &map->buckets[i];
+        if (e->value < 0) continue;
+        fn(e->key, e->key_len, UnsafeArray_Get(map->values, (uint32_t)e->value));
+    }
+}
+
 #define UnsafeHashMap_GetDeref(map, key, key_len, type) \
     (*(type *)UnsafeHashMap_Get(map, key, key_len))
 
@@ -448,6 +459,18 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
     e->value = UNSAFEHASHMAP_DELETED;
     map->entry_count--;
     return 0;
+}
+
+// Calls fn(key, key_len, value, value_size) for each entry.
+typedef void (*UnsafeVariedHashMapForEachFn)(const void *key, uint32_t key_len, void *value, uint32_t value_size);
+
+static void UnsafeVariedHashMap_ForEach(UnsafeVariedHashMap *map, UnsafeVariedHashMapForEachFn fn) {
+    for (uint32_t i = 0; i < map->bucket_count; i++) {
+        UnsafeVariedHashEntry *e = &map->buckets[i];
+        if (e->value < 0) continue;
+        UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+        fn(e->key, e->key_len, UnsafeArray_Get(map->data, info->offset), info->size);
+    }
 }
 
 #define UnsafeVariedHashMap_GetDeref(map, key, key_len, type) \

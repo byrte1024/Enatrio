@@ -9,6 +9,7 @@
 typedef uint16_t ClassID;
 #define CLASSID_MAX UINT16_MAX
 #define CLASS_MAXNAMELENGTH 64
+#define CID_Untyped ((ClassID)(0))
 
 typedef const char MessageID[64];
 #define MESSAGEID_EMPTY ((const char[64]) {0})
@@ -44,6 +45,7 @@ typedef struct MessagePayload {
 #define MESSAGE_RESULT_PENDING ((uint8_t)(18))
 #define MESSAGE_RESULT_IGNORED ((uint8_t)(19))
 #define MESSAGE_RESULT_NOTSENT ((uint8_t)(20))
+#define MESSAGE_RESULT_INVALID_SELF ((uint8_t)(21))
 
 #define MESSAGE_RESULT_NAME(r) ( \
     (r) == MESSAGE_RESULT_SUCCESS        ? "SUCCESS" : \
@@ -67,6 +69,7 @@ typedef struct MessagePayload {
     (r) == MESSAGE_RESULT_PENDING        ? "PENDING" : \
     (r) == MESSAGE_RESULT_IGNORED       ? "IGNORED" : \
     (r) == MESSAGE_RESULT_NOTSENT       ? "NOTSENT" : \
+    (r) == MESSAGE_RESULT_INVALID_SELF  ? "INVALID_SELF" : \
     "UNDEFINED")
 
 #define MESSAGE_RESULT_DESC(r) ( \
@@ -91,6 +94,7 @@ typedef struct MessagePayload {
     (r) == MESSAGE_RESULT_PENDING        ? "Message has not yet been acknowledged" : \
     (r) == MESSAGE_RESULT_IGNORED       ? "Message was never acknowledged" : \
     (r) == MESSAGE_RESULT_NOTSENT       ? "Message has not been sent" : \
+    (r) == MESSAGE_RESULT_INVALID_SELF  ? "Invalid 'Self' object" : \
     "Undefined result code")
 
 
@@ -111,6 +115,9 @@ inline bool ClassRegistrationsOpen = false;
 
 #define CLASSID_ISUNTYPED(c) (c) == ((uint16_t)(0x0000))
 #define CLASSID_ISREGISTERED(c) (ClassDefinitions[(c)].cid == c)
+
+#define CLASSID_TOSTRING(c) (ClassDefinitions[(c)].classname)
+#define CLASSID_TODEF(c) (ClassDefinitions[(c)])
 
 static void BeginClassRegistrations() {
     ClassRegistrationsOpen = true;
@@ -163,6 +170,16 @@ static void EndClassRegistrations() {
 
     LOG_INFO("Class system registration completed.");
     LOG_INFO("========================================");
+}
+
+static inline bool CanDispatchMessage(MessageID mid, ClassID cid){
+    if(CLASSID_ISUNTYPED(cid)){
+        return false;
+    }
+    if(!CLASSID_ISREGISTERED(cid)){
+        return false;
+    }
+    return ClassDefinitions[cid].CanReceiveMID(mid);
 }
 
 static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
@@ -298,6 +315,12 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     static void BAT4(MESSAGE_HANDLER_, TYPE, _, handlername)(MessagePayload* payload) { \
         payload->result = MESSAGE_RESULT_SUCCESS;
 
+// Opens a message handler using another class's namespace.
+//   MESSAGE_HANDLER_BEGIN_EXTERN(Default, SELF_Create)
+#define MESSAGE_HANDLER_BEGIN_EXTERN(classname, handlername) \
+    static void BAT4(MESSAGE_HANDLER_, classname, _, handlername)(MessagePayload* payload) { \
+        payload->result = MESSAGE_RESULT_SUCCESS;
+
 // Closes a message handler function.
 //   MESSAGE_HANDLER_END()
 #define MESSAGE_HANDLER_END() }
@@ -370,6 +393,11 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 #define CAN_RECEIVE_MID(msgname) \
     if (strcmp(mid, BAT4(MID_, TYPE, _, msgname)) == 0) return true;
 
+// Adds a MID check using another class's namespace.
+//   CAN_RECEIVE_MID_EXTERN(Default, SELF_Create)
+#define CAN_RECEIVE_MID_EXTERN(classname, msgname) \
+    if (strcmp(mid, BAT4(MID_, classname, _, msgname)) == 0) return true;
+
 // Closes CanReceiveMID (returns false for unrecognized).
 //   CAN_RECEIVE_END()
 #define CAN_RECEIVE_END() \
@@ -391,6 +419,13 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 #define RECEIVE_MESSAGE_ROUTE(msgname) \
         else if (strcmp(payload->mid, BAT4(MID_, TYPE, _, msgname)) == 0) { \
             BAT4(MESSAGE_HANDLER_, TYPE, _, msgname)(payload); \
+        }
+
+// Routes a MID to a handler from another class's namespace.
+//   RECEIVE_MESSAGE_ROUTE_EXTERN(Default, SELF_Create)
+#define RECEIVE_MESSAGE_ROUTE_EXTERN(classname, msgname) \
+        else if (strcmp(payload->mid, BAT4(MID_, classname, _, msgname)) == 0) { \
+            BAT4(MESSAGE_HANDLER_, classname, _, msgname)(payload); \
         }
 
 // Closes ReceiveMessage (else branch sets NOT_SUPPORTED for unmatched).

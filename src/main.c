@@ -24,16 +24,6 @@ int main() {
   DispatchMessage(&msg);
   FreePayload(&msg);
 
-  MessagePayload msg2 = PreparePayload(CID_Exploder, MID_Exploder_ShimmiShimmiYea);
-  Payload_SetValue(&msg2, "Strength", float, 0.03f);
-  DispatchMessage(&msg2);
-  FreePayload(&msg2);
-
-  MessagePayload msg3 = PreparePayload(CID_Exploder, MID_Exploder_ShimmiShimmiYea);
-  Payload_SetValue(&msg3, "Strength", float, 3.77f);
-  DispatchMessage(&msg3);
-  FreePayload(&msg3);
-
   return 0;
 }
 

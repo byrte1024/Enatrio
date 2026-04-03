@@ -13,6 +13,7 @@
 #include "cts/UnsafeVariedHashMapTests.h"
 #include "cts/UtilsTests.h"
 #include "cts/ClassTests.h"
+#include "cts/SelfTests.h"
 
 int main(void) {
     START_LOGGING("tests.log", LOG_INFO);
@@ -26,6 +27,7 @@ int main(void) {
     run_unsafe_varied_hashmap_tests();
     run_utils_tests();
     run_class_tests();
+    run_self_tests();
 
     LOG_INFO("=== Results: %d/%d passed ===", tests_passed, tests_run);
 

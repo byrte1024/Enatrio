@@ -125,6 +125,44 @@ static int UnsafeDictionary_Remove(UnsafeDictionary *dict, const void *key, uint
 #define UnsafeDictionary_SetValue(dict, key, key_len, type, value) \
     UnsafeDictionary_Set(dict, key, key_len, &(type){value})
 
+// Calls fn(key, key_len, value) for each entry via trie walk.
+typedef void (*UnsafeDictForEachFn)(const void *key, uint32_t key_len, void *value);
+
+static void _UnsafeDictionary_ForEachWalk(
+    UnsafeDictionary *dict, int32_t node_idx,
+    uint8_t *key_buf, uint32_t depth,
+    UnsafeDictForEachFn fn
+) {
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+
+    if (node->value != UNSAFEDICT_EMPTY) {
+        uint32_t key_len = depth / 4;
+        fn(key_buf, key_len, UnsafeArray_Get(dict->values, (uint32_t)node->value));
+    }
+
+    for (int child = 0; child < 4; child++) {
+        if (node->children[child] == UNSAFEDICT_EMPTY) continue;
+
+        uint32_t byte_idx = depth / 4;
+        uint32_t pair_idx = depth % 4;
+        int shift = 6 - (int)pair_idx * 2;
+        uint8_t mask = (uint8_t)(0x03 << shift);
+
+        if (pair_idx == 0) key_buf[byte_idx] = 0;
+        key_buf[byte_idx] = (key_buf[byte_idx] & ~mask) | (uint8_t)(child << shift);
+
+        _UnsafeDictionary_ForEachWalk(dict, node->children[child], key_buf, depth + 1, fn);
+
+        node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    }
+}
+
+static void UnsafeDictionary_ForEach(UnsafeDictionary *dict, UnsafeDictForEachFn fn) {
+    uint8_t key_buf[UNSAFEDICT_MAX_KEY_LEN];
+    memset(key_buf, 0, sizeof(key_buf));
+    _UnsafeDictionary_ForEachWalk(dict, 0, key_buf, 0, fn);
+}
+
 // Compile-time string literal length. Rejects char* pointers at compile time.
 #define _UNSAFE_STRLITERAL_LEN(s) ({ \
     _Static_assert( \
@@ -416,6 +454,45 @@ static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const voi
 
     node->value = UNSAFEDICT_EMPTY;
     return 0;
+}
+
+// Calls fn(key, key_len, value, value_size) for each entry via trie walk.
+typedef void (*UnsafeVariedDictForEachFn)(const void *key, uint32_t key_len, void *value, uint32_t value_size);
+
+static void _UnsafeVariedDictionary_ForEachWalk(
+    UnsafeVariedDictionary *dict, int32_t node_idx,
+    uint8_t *key_buf, uint32_t depth,
+    UnsafeVariedDictForEachFn fn
+) {
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+
+    if (node->value != UNSAFEDICT_EMPTY) {
+        UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+        uint32_t key_len = depth / 4;
+        fn(key_buf, key_len, UnsafeArray_Get(dict->data, entry->offset), entry->size);
+    }
+
+    for (int child = 0; child < 4; child++) {
+        if (node->children[child] == UNSAFEDICT_EMPTY) continue;
+
+        uint32_t byte_idx = depth / 4;
+        uint32_t pair_idx = depth % 4;
+        int shift = 6 - (int)pair_idx * 2;
+        uint8_t mask = (uint8_t)(0x03 << shift);
+
+        if (pair_idx == 0) key_buf[byte_idx] = 0;
+        key_buf[byte_idx] = (key_buf[byte_idx] & ~mask) | (uint8_t)(child << shift);
+
+        _UnsafeVariedDictionary_ForEachWalk(dict, node->children[child], key_buf, depth + 1, fn);
+
+        node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    }
+}
+
+static void UnsafeVariedDictionary_ForEach(UnsafeVariedDictionary *dict, UnsafeVariedDictForEachFn fn) {
+    uint8_t key_buf[UNSAFEDICT_MAX_KEY_LEN];
+    memset(key_buf, 0, sizeof(key_buf));
+    _UnsafeVariedDictionary_ForEachWalk(dict, 0, key_buf, 0, fn);
 }
 
 #define UnsafeVariedDictionary_GetDeref(dict, key, key_len, type) \
