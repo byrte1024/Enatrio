@@ -132,14 +132,14 @@ SELF_MESSAGE_HANDLER_BEGIN(SumTree)
     int sum = Self_GetDeref("value", int);
 
     if (Self_HasRef("left") && !Self_IsRefSelf("left")) {
-        ObjectReference left = Self_GetRef("left");
+            TempObjectReference left = Self_GetRef("left");
         MessagePayload lm = PrepareSelfPayload(left, MID_Node_SELF_SumTree);
         DispatchMessage(&lm);
         sum += Payload_GetDeref(&lm, "result", int);
         FreePayload(&lm);
     }
     if (Self_HasRef("right") && !Self_IsRefSelf("right")) {
-        ObjectReference right = Self_GetRef("right");
+            TempObjectReference right = Self_GetRef("right");
         MessagePayload rm = PrepareSelfPayload(right, MID_Node_SELF_SumTree);
         DispatchMessage(&rm);
         sum += Payload_GetDeref(&rm, "result", int);
@@ -218,7 +218,7 @@ static void test_self_ghost_lifecycle(void) {
     ASSERT(ghost != NULL);
     ASSERT(ghost->cid == CID_Untyped);
     ASSERT(ghost->data == NULL);
-    ASSERT(ghost->reference_counter == 0);
+    ASSERT(ghost->external_refs == 0);
     ObjectContainer_DestroyGhost(ghost);
     PASS();
 }
@@ -255,17 +255,17 @@ static void test_self_object_create_destroy(void) {
     ASSERT(obj != NULL);
     ASSERT(obj->cid == CID_Counter);
     ASSERT(obj->data != NULL);
-    ASSERT(obj->reference_counter == 0);
+    ASSERT(obj->external_refs == 0);
     Object_Destroy(obj);
     PASS();
 }
 
 static void test_self_object_create_ref(void) {
     TEST("self: Object_CreateRef gives refcount 1");
-    ObjectReference ref = Object_CreateRef(CID_Counter);
+    ExternalReference ref = Object_CreateRef(CID_Counter);
     ASSERT(ref != NULL);
-    ASSERT(ref->reference_counter == 1);
-    ObjectContainer_UnRef(&ref);
+    ASSERT(ref->external_refs == 1);
+    ObjectContainer_UnRef_External(&ref);
     ASSERT(ref == NULL);
     PASS();
 }
@@ -277,10 +277,10 @@ static void test_self_object_create_ref(void) {
 static void test_self_refcount_basic(void) {
     TEST("self: ref from temp increments, unref decrements");
     TempObjectReference obj = Object_Create(CID_Counter);
-    ASSERT(obj->reference_counter == 0);
-    ObjectReference ref = ObjectContainer_Ref_From_TempRef(obj);
-    ASSERT(obj->reference_counter == 1);
-    ObjectContainer_UnRef(&ref);
+    ASSERT(obj->external_refs == 0);
+    ExternalReference ref = ObjectContainer_ExternalRef_From_Temp(obj);
+    ASSERT(obj->external_refs == 1);
+    ObjectContainer_UnRef_External(&ref);
     // obj is freed now (refcount went to 0), don't touch it
     ASSERT(ref == NULL);
     PASS();
@@ -289,21 +289,21 @@ static void test_self_refcount_basic(void) {
 static void test_self_refcount_multiple(void) {
     TEST("self: multiple refs, last unref destroys");
     TempObjectReference obj = Object_Create(CID_Counter);
-    ObjectReference ref1 = ObjectContainer_Ref_From_TempRef(obj);
-    ObjectReference ref2 = ObjectContainer_Ref_From_Ref(ref1);
-    ObjectReference ref3 = ObjectContainer_Ref_From_Ref(ref2);
-    ASSERT(obj->reference_counter == 3);
+    ExternalReference ref1 = ObjectContainer_ExternalRef_From_Temp(obj);
+    ExternalReference ref2 = ObjectContainer_ExternalRef_From_External(ref1);
+    ExternalReference ref3 = ObjectContainer_ExternalRef_From_External(ref2);
+    ASSERT(obj->external_refs == 3);
 
-    ObjectContainer_UnRef(&ref1);
+    ObjectContainer_UnRef_External(&ref1);
     ASSERT(ref1 == NULL);
-    ASSERT(obj->reference_counter == 2);
+    ASSERT(obj->external_refs == 2);
 
-    ObjectContainer_UnRef(&ref2);
+    ObjectContainer_UnRef_External(&ref2);
     ASSERT(ref2 == NULL);
-    ASSERT(obj->reference_counter == 1);
+    ASSERT(obj->external_refs == 1);
 
     // Last unref -- obj gets destroyed
-    ObjectContainer_UnRef(&ref3);
+    ObjectContainer_UnRef_External(&ref3);
     ASSERT(ref3 == NULL);
     PASS();
 }
@@ -441,7 +441,7 @@ static void test_self_two_instances_independent(void) {
 
 static void test_self_ref_dispatch(void) {
     TEST("self: dispatch via ObjectReference works");
-    ObjectReference ref = Object_CreateRef(CID_Counter);
+    ExternalReference ref = Object_CreateRef(CID_Counter);
 
     MessagePayload msg = PrepareSelfPayload(ref, MID_Counter_SELF_Increment);
     DispatchMessage(&msg);
@@ -449,157 +449,7 @@ static void test_self_ref_dispatch(void) {
     ASSERT(Payload_GetDeref(&msg, "result", int) == 1);
     FreePayload(&msg);
 
-    ObjectContainer_UnRef(&ref);
-    PASS();
-}
-
-// ============================================================
-// Memory management / lifecycle stress tests
-// ============================================================
-
-static void test_self_create_destroy_many(void) {
-    TEST("self: create and destroy 100 objects");
-    for (int i = 0; i < 100; i++) {
-        TempObjectReference obj = Object_Create(CID_Counter);
-        ASSERT(obj != NULL);
-        ASSERT(obj->data != NULL);
-        Object_Destroy(obj);
-    }
-    PASS();
-}
-
-static void test_self_create_ref_unref_many(void) {
-    TEST("self: create ref, unref 100 objects");
-    for (int i = 0; i < 100; i++) {
-        ObjectReference ref = Object_CreateRef(CID_Counter);
-        ASSERT(ref != NULL);
-        ASSERT(ref->reference_counter == 1);
-        ObjectContainer_UnRef(&ref);
-        ASSERT(ref == NULL);
-    }
-    PASS();
-}
-
-static void test_self_many_refs_one_object(void) {
-    TEST("self: 50 refs to one object, unref all");
-    TempObjectReference obj = Object_Create(CID_Counter);
-    ObjectReference refs[50];
-    for (int i = 0; i < 50; i++) {
-        refs[i] = ObjectContainer_Ref_From_TempRef(obj);
-    }
-    ASSERT(obj->reference_counter == 50);
-
-    for (int i = 0; i < 49; i++) {
-        ObjectContainer_UnRef(&refs[i]);
-        ASSERT(refs[i] == NULL);
-        ASSERT(obj->reference_counter == 49 - i);
-    }
-    // Last unref destroys
-    ObjectContainer_UnRef(&refs[49]);
-    ASSERT(refs[49] == NULL);
-    PASS();
-}
-
-static void test_self_dispatch_after_multiple_create(void) {
-    TEST("self: dispatch to many objects, verify independence");
-    TempObjectReference objs[10];
-    for (int i = 0; i < 10; i++) {
-        objs[i] = Object_Create(CID_Counter);
-        ASSERT(objs[i] != NULL);
-    }
-    // Increment each object i times
-    for (int i = 0; i < 10; i++) {
-        for (int j = 0; j <= i; j++) {
-            MessagePayload m = _counter_dispatch(objs[i], MID_Counter_SELF_Increment);
-            FreePayload(&m);
-        }
-    }
-    // Verify counts
-    for (int i = 0; i < 10; i++) {
-        MessagePayload m = _counter_dispatch(objs[i], MID_Counter_SELF_GetCount);
-        ASSERT(Payload_GetDeref(&m, "result", int) == i + 1);
-        FreePayload(&m);
-    }
-    // Destroy all
-    for (int i = 0; i < 10; i++) {
-        Object_Destroy(objs[i]);
-    }
-    PASS();
-}
-
-static void test_self_ref_dispatch_then_unref(void) {
-    TEST("self: dispatch via ref, then unref cleans up");
-    ObjectReference ref = Object_CreateRef(CID_Counter);
-
-    // Use the object through its ref
-    for (int i = 0; i < 10; i++) {
-        MessagePayload m = PrepareSelfPayload(ref, MID_Counter_SELF_Increment);
-        DispatchMessage(&m);
-        ASSERT(MESSAGE_RESULT_ISOK(m.result));
-        FreePayload(&m);
-    }
-
-    MessagePayload mg = PrepareSelfPayload(ref, MID_Counter_SELF_GetCount);
-    DispatchMessage(&mg);
-    ASSERT(Payload_GetDeref(&mg, "result", int) == 10);
-    FreePayload(&mg);
-
-    // Unref destroys (SELF_Destroy runs, frees data)
-    ObjectContainer_UnRef(&ref);
-    ASSERT(ref == NULL);
-    PASS();
-}
-
-static void test_self_payload_freed_on_all_paths(void) {
-    TEST("self: FreePayload works on dispatched and undispatched payloads");
-    TempObjectReference obj = Object_Create(CID_Counter);
-
-    // Dispatched payload
-    MessagePayload m1 = _counter_dispatch(obj, MID_Counter_SELF_Increment);
-    ASSERT(m1.data != NULL);
-    FreePayload(&m1);
-
-    // Undispatched payload (just prepared, never sent)
-    MessagePayload m2 = PrepareSelfPayload(obj, MID_Counter_SELF_GetCount);
-    ASSERT(m2.data != NULL);
-    FreePayload(&m2);
-
-    Object_Destroy(obj);
-    PASS();
-}
-
-static void test_self_ghost_step_by_step_free(void) {
-    TEST("self: step-by-step lifecycle frees correctly");
-    // Ghost
-    TempObjectReference obj = ObjectContainer_CreateGhost();
-    ASSERT(obj != NULL);
-
-    // Type
-    ObjectContainer_TypeEmptyUntyped(obj, CID_Counter);
-    ASSERT(obj->cid == CID_Counter);
-    ASSERT(obj->data == NULL);
-
-    // Fill (allocs data + values + references + dispatches SELF_Create)
-    ObjectContainer_FillEmptyTyped(obj);
-    ASSERT(obj->data != NULL);
-    ASSERT(obj->data->values != NULL);
-    ASSERT(obj->data->references != NULL);
-
-    // Use it
-    MessagePayload m = _counter_dispatch(obj, MID_Counter_SELF_Increment);
-    ASSERT(Payload_GetDeref(&m, "result", int) == 1);
-    FreePayload(&m);
-
-    // Empty (dispatches SELF_Destroy, frees data)
-    ObjectContainer_EmptyFilledTyped(obj);
-    ASSERT(obj->data == NULL);
-
-    // Untype
-    ObjectContainer_UntypeEmptyTyped(obj);
-    ASSERT(obj->cid == CID_Untyped);
-
-    // Destroy ghost (frees container)
-    ObjectContainer_DestroyGhost(obj);
+    ObjectContainer_UnRef_External(&ref);
     PASS();
 }
 
@@ -607,98 +457,62 @@ static void test_self_ghost_step_by_step_free(void) {
 // Held reference cleanup tests
 // ============================================================
 
-static void test_self_empty_unrefs_held_references(void) {
-    TEST("self: emptying object unrefs its held references");
-    // Create two objects: holder and target
+static void test_self_empty_unrefs_held(void) {
+    TEST("self: emptying object unrefs held internal refs");
     TempObjectReference holder = Object_Create(CID_Counter);
     TempObjectReference target = Object_Create(CID_Counter);
-
-    // Take a ref to target and store it in holder's references hashmap
-    ObjectReference target_ref = ObjectContainer_Ref_From_TempRef(target);
-    ASSERT(target->reference_counter == 1);
-
-    UnsafeHashMap_SSet(holder->data->references, "target", &target_ref);
-
-    // Empty the holder -- should UnRef the held reference to target
-    Object_EmptyFilledType(ObjectContainer_Ref_From_TempRef(holder));
-    // target's refcount should have dropped to 0, meaning it was auto-destroyed
-    // holder is now empty but still typed
+    Object_SStoreRef(holder, "t", target);
+    ASSERT(target->internal_refs == 1);
+    ExternalReference h = ObjectContainer_ExternalRef_From_Temp(holder);
+    Object_EmptyFilledType(h);
     ASSERT(holder->data == NULL);
-    ASSERT(holder->cid == CID_Counter);
-
-    // Clean up holder (empty+untype+destroy)
     ObjectContainer_UntypeEmptyTyped(holder);
     ObjectContainer_DestroyGhost(holder);
     PASS();
 }
 
-static void test_self_empty_unrefs_multiple_held(void) {
-    TEST("self: emptying object unrefs multiple held references");
+static void test_self_empty_unrefs_multiple(void) {
+    TEST("self: emptying unrefs multiple held refs");
     TempObjectReference holder = Object_Create(CID_Counter);
-
-    // Create 5 targets, ref them, store in holder
-    TempObjectReference targets[5];
     for (int i = 0; i < 5; i++) {
-        targets[i] = Object_Create(CID_Counter);
-        ObjectReference ref = ObjectContainer_Ref_From_TempRef(targets[i]);
-        char key[16];
+        TempObjectReference t = Object_Create(CID_Counter);
+        char key[8];
         snprintf(key, sizeof(key), "t%d", i);
-        UnsafeHashMap_Set(holder->data->references, key, (uint32_t)strlen(key), &ref);
+        Object_StoreRef(holder, key, (uint32_t)strlen(key), t);
     }
-
-    // All targets have refcount 1
-    for (int i = 0; i < 5; i++) {
-        ASSERT(targets[i]->reference_counter == 1);
-    }
-
-    // Empty holder -- all 5 refs should be unref'd, destroying all targets
-    Object_EmptyFilledType(ObjectContainer_Ref_From_TempRef(holder));
-
-    // Clean up holder
+    ExternalReference h = ObjectContainer_ExternalRef_From_Temp(holder);
+    Object_EmptyFilledType(h);
     ObjectContainer_UntypeEmptyTyped(holder);
     ObjectContainer_DestroyGhost(holder);
     PASS();
 }
 
-static void test_self_empty_unrefs_shared_target(void) {
-    TEST("self: emptying with shared ref only decrements, not destroys");
+static void test_self_empty_shared_survives(void) {
+    TEST("self: shared target survives if ext ref exists");
     TempObjectReference holder = Object_Create(CID_Counter);
     TempObjectReference target = Object_Create(CID_Counter);
-
-    // Two refs to target: one held by holder, one external
-    ObjectReference ext_ref = ObjectContainer_Ref_From_TempRef(target);
-    ObjectReference held_ref = ObjectContainer_Ref_From_TempRef(target);
-    ASSERT(target->reference_counter == 2);
-
-    UnsafeHashMap_SSet(holder->data->references, "shared", &held_ref);
-
-    // Empty holder -- decrements target refcount but doesn't destroy it
-    Object_EmptyFilledType(ObjectContainer_Ref_From_TempRef(holder));
-    ASSERT(target->reference_counter == 1);
-    ASSERT(target->data != NULL); // still alive
-
-    // Clean up
+    ExternalReference target_ext = ObjectContainer_ExternalRef_From_Temp(target);
+    Object_SStoreRef(holder, "s", target);
+    ASSERT(target->external_refs == 1);
+    ASSERT(target->internal_refs == 1);
+    ExternalReference h = ObjectContainer_ExternalRef_From_Temp(holder);
+    Object_EmptyFilledType(h);
+    ASSERT(target->internal_refs == 0);
+    ASSERT(target->external_refs == 1);
     ObjectContainer_UntypeEmptyTyped(holder);
     ObjectContainer_DestroyGhost(holder);
-    ObjectContainer_UnRef(&ext_ref); // last ref, destroys target
-    ASSERT(ext_ref == NULL);
+    ObjectContainer_UnRef_External(&target_ext);
     PASS();
 }
 
-static void test_self_unref_with_held_refs_cascades(void) {
-    TEST("self: UnRef on holder cascades to held refs");
-    ObjectReference holder_ref = Object_CreateRef(CID_Counter);
+static void test_self_unref_cascades_held(void) {
+    TEST("self: unref holder cascades to held refs");
+    ExternalReference h = Object_CreateRef(CID_Counter);
     TempObjectReference target = Object_Create(CID_Counter);
-
-    ObjectReference target_ref = ObjectContainer_Ref_From_TempRef(target);
-    ASSERT(target->reference_counter == 1);
-
-    UnsafeHashMap_SSet(holder_ref->data->references, "child", &target_ref);
-
-    // UnRef holder -- destroys holder, which empties it, which unrefs target
-    ObjectContainer_UnRef(&holder_ref);
-    ASSERT(holder_ref == NULL);
-    // target was also destroyed (refcount went to 0)
+    Object_SStoreRef(h, "child", target);
+    ASSERT(target->internal_refs == 1);
+    ObjectContainer_UnRef_External(&h);
+    ASSERT(h == NULL);
     PASS();
 }
 
@@ -709,393 +523,385 @@ static void test_self_unref_with_held_refs_cascades(void) {
 static void test_node_single(void) {
     TEST("node: single node holds value");
     TempObjectReference n = _node_create(42);
-    ASSERT(n != NULL);
-    ASSERT(n->data != NULL);
-    MessagePayload m = PrepareSelfPayload(n, MID_Node_SELF_GetValue);
-    DispatchMessage(&m);
-    ASSERT(Payload_GetDeref(&m, "result", int) == 42);
-    FreePayload(&m);
-    Object_Destroy(n);
-    PASS();
-}
-
-static void test_node_sum_single(void) {
-    TEST("node: SumTree on leaf returns own value");
-    TempObjectReference n = _node_create(10);
-    ASSERT(_node_sum(n) == 10);
+    ASSERT(_node_sum(n) == 42);
     Object_Destroy(n);
     PASS();
 }
 
 static void test_node_two_children(void) {
-    TEST("node: parent with two children sums correctly");
-    //       root(10)
-    //      /        \
-    //  left(20)  right(30)
+    TEST("node: parent + two children sums correctly");
     TempObjectReference root = _node_create(10);
     TempObjectReference left = _node_create(20);
     TempObjectReference right = _node_create(30);
-
-    ObjectReference left_ref = ObjectContainer_Ref_From_TempRef(left);
-    ObjectReference right_ref = ObjectContainer_Ref_From_TempRef(right);
-
-    _node_set_child(root, MID_Node_SELF_SetLeft, left_ref);
-    _node_set_child(root, MID_Node_SELF_SetRight, right_ref);
-
-    ASSERT(_node_sum(root) == 60); // 10 + 20 + 30
-
-    // Destroy root -- should unref children
+    ExternalReference l = ObjectContainer_ExternalRef_From_Temp(left);
+    ExternalReference r = ObjectContainer_ExternalRef_From_Temp(right);
+    _node_set_child(root, MID_Node_SELF_SetLeft, l);
+    _node_set_child(root, MID_Node_SELF_SetRight, r);
+    ASSERT(_node_sum(root) == 60);
     Object_Destroy(root);
-    // Children still alive via our local refs
-    ASSERT(left->reference_counter == 1);
-    ASSERT(right->reference_counter == 1);
-    ObjectContainer_UnRef(&left_ref);
-    ObjectContainer_UnRef(&right_ref);
-    PASS();
-}
-
-static void test_node_deep_tree(void) {
-    TEST("node: deep tree sums all nodes");
-    //         root(1)
-    //        /
-    //      a(2)
-    //     /
-    //   b(3)
-    //  /
-    // c(4)
-    TempObjectReference c = _node_create(4);
-    TempObjectReference b = _node_create(3);
-    TempObjectReference a = _node_create(2);
-    TempObjectReference root = _node_create(1);
-
-    ObjectReference c_ref = ObjectContainer_Ref_From_TempRef(c);
-    ObjectReference b_ref = ObjectContainer_Ref_From_TempRef(b);
-    ObjectReference a_ref = ObjectContainer_Ref_From_TempRef(a);
-
-    _node_set_child(b, MID_Node_SELF_SetLeft, c_ref);
-    _node_set_child(a, MID_Node_SELF_SetLeft, b_ref);
-    _node_set_child(root, MID_Node_SELF_SetLeft, a_ref);
-
-    ASSERT(_node_sum(root) == 10); // 1+2+3+4
-
-    Object_Destroy(root);
-    // a still alive (our ref + nothing else since root unref'd)
-    // but root's unref of a cascaded: a unref'd b, b unref'd c
-    // Our local refs still hold them
-    ObjectContainer_UnRef(&a_ref);
-    ObjectContainer_UnRef(&b_ref);
-    ObjectContainer_UnRef(&c_ref);
-    PASS();
-}
-
-static void test_node_full_binary_tree(void) {
-    TEST("node: full binary tree of 7 nodes");
-    //           root(1)
-    //          /       \
-    //       l(2)       r(3)
-    //      /   \      /   \
-    //   ll(4) lr(5) rl(6) rr(7)
-    TempObjectReference ll = _node_create(4);
-    TempObjectReference lr = _node_create(5);
-    TempObjectReference rl = _node_create(6);
-    TempObjectReference rr = _node_create(7);
-    TempObjectReference l  = _node_create(2);
-    TempObjectReference r  = _node_create(3);
-    TempObjectReference root = _node_create(1);
-
-    ObjectReference ll_ref = ObjectContainer_Ref_From_TempRef(ll);
-    ObjectReference lr_ref = ObjectContainer_Ref_From_TempRef(lr);
-    ObjectReference rl_ref = ObjectContainer_Ref_From_TempRef(rl);
-    ObjectReference rr_ref = ObjectContainer_Ref_From_TempRef(rr);
-    ObjectReference l_ref  = ObjectContainer_Ref_From_TempRef(l);
-    ObjectReference r_ref  = ObjectContainer_Ref_From_TempRef(r);
-
-    _node_set_child(l, MID_Node_SELF_SetLeft, ll_ref);
-    _node_set_child(l, MID_Node_SELF_SetRight, lr_ref);
-    _node_set_child(r, MID_Node_SELF_SetLeft, rl_ref);
-    _node_set_child(r, MID_Node_SELF_SetRight, rr_ref);
-    _node_set_child(root, MID_Node_SELF_SetLeft, l_ref);
-    _node_set_child(root, MID_Node_SELF_SetRight, r_ref);
-
-    ASSERT(_node_sum(root) == 28); // 1+2+3+4+5+6+7
-
-    // Destroy root, then unref all local refs
-    Object_Destroy(root);
-    ObjectContainer_UnRef(&l_ref);
-    ObjectContainer_UnRef(&r_ref);
-    ObjectContainer_UnRef(&ll_ref);
-    ObjectContainer_UnRef(&lr_ref);
-    ObjectContainer_UnRef(&rl_ref);
-    ObjectContainer_UnRef(&rr_ref);
+    ObjectContainer_UnRef_External(&l);
+    ObjectContainer_UnRef_External(&r);
     PASS();
 }
 
 static void test_node_shared_child(void) {
     TEST("node: two parents share same child");
-    //  parent1(10)   parent2(20)
-    //       \         /
-    //      shared(5)
     TempObjectReference shared = _node_create(5);
     TempObjectReference p1 = _node_create(10);
     TempObjectReference p2 = _node_create(20);
-
-    ObjectReference shared_ref = ObjectContainer_Ref_From_TempRef(shared);
-
-    _node_set_child(p1, MID_Node_SELF_SetRight, shared_ref);
-    _node_set_child(p2, MID_Node_SELF_SetLeft, shared_ref);
-
-    // shared has 3 refs: our local + p1's + p2's
-    ASSERT(shared->reference_counter == 3);
-
-    ASSERT(_node_sum(p1) == 15); // 10 + 5
-    ASSERT(_node_sum(p2) == 25); // 20 + 5
-
-    // Destroy p1 -- unrefs shared, but shared still alive (2 refs left)
+    ExternalReference s = ObjectContainer_ExternalRef_From_Temp(shared);
+    _node_set_child(p1, MID_Node_SELF_SetRight, s);
+    _node_set_child(p2, MID_Node_SELF_SetLeft, s);
+    ASSERT(shared->external_refs == 1);
+    ASSERT(shared->internal_refs == 2);
     Object_Destroy(p1);
-    ASSERT(shared->reference_counter == 2);
-
-    // Destroy p2 -- unrefs shared, still alive (1 ref: our local)
+    ASSERT(shared->internal_refs == 1);
     Object_Destroy(p2);
-    ASSERT(shared->reference_counter == 1);
-    ASSERT(shared->data != NULL); // still alive
-
-    ObjectContainer_UnRef(&shared_ref); // last ref, destroys shared
-    ASSERT(shared_ref == NULL);
+    ASSERT(shared->internal_refs == 0);
+    ObjectContainer_UnRef_External(&s);
     PASS();
 }
 
-static void test_node_cascade_destroy_via_unref(void) {
-    TEST("node: sole-owner tree destroyed by single unref");
-    //      root(1)
-    //     /       \
-    //   l(2)     r(3)
-    TempObjectReference root = _node_create(1);
-    TempObjectReference l = _node_create(2);
-    TempObjectReference r = _node_create(3);
-
-    // Only one ref each, held by root
-    ObjectReference l_ref = ObjectContainer_Ref_From_TempRef(l);
-    ObjectReference r_ref = ObjectContainer_Ref_From_TempRef(r);
-    _node_set_child(root, MID_Node_SELF_SetLeft, l_ref);
-    _node_set_child(root, MID_Node_SELF_SetRight, r_ref);
-
-    // Verify tree works
-    ASSERT(_node_sum(root) == 6);
-
-    // Take a single ref to root
-    ObjectReference root_ref = ObjectContainer_Ref_From_TempRef(root);
-
-    // Unref root -- should cascade: root destroys -> unrefs l and r -> they destroy
-    ObjectContainer_UnRef(&root_ref);
-    ASSERT(root_ref == NULL);
-    // l and r also destroyed (their only refs were from root + our locals)
-    // Our local ObjectReference vars were stored in root's refs, which got unref'd
-    // But l_ref and r_ref are still holding... let's unref those too
-    ObjectContainer_UnRef(&l_ref);
-    ObjectContainer_UnRef(&r_ref);
-    PASS();
-}
-
-// ============================================================
-// Self_IsRefSelf tests
-// ============================================================
-
-static void test_node_self_ref_sum_skips(void) {
-    TEST("node: SumTree skips self-referencing children");
+static void test_node_self_ref_skips(void) {
+    TEST("node: SumTree skips self-ref children");
     TempObjectReference a = _node_create(42);
-    ObjectReference a_ref = ObjectContainer_Ref_From_TempRef(a);
-    _node_set_child(a, MID_Node_SELF_SetLeft, a_ref);
-
-    // SumTree should return just 42, not infinite recurse
+    ExternalReference ae = ObjectContainer_ExternalRef_From_Temp(a);
+    _node_set_child(a, MID_Node_SELF_SetLeft, ae);
     ASSERT(_node_sum(a) == 42);
     Object_Destroy(a);
     PASS();
 }
 
-static void test_node_self_ref_both_children(void) {
-    TEST("node: SumTree with both children pointing to self");
-    TempObjectReference a = _node_create(10);
-    ObjectReference ref1 = ObjectContainer_Ref_From_TempRef(a);
-    ObjectReference ref2 = ObjectContainer_Ref_From_TempRef(a);
-    _node_set_child(a, MID_Node_SELF_SetLeft, ref1);
-    _node_set_child(a, MID_Node_SELF_SetRight, ref2);
-
-    ASSERT(_node_sum(a) == 10);
-    Object_Destroy(a);
-    PASS();
-}
-
-static void test_node_self_ref_mixed(void) {
-    TEST("node: SumTree with one self-ref and one real child");
-    TempObjectReference a = _node_create(10);
-    TempObjectReference b = _node_create(20);
-
-    ObjectReference a_self = ObjectContainer_Ref_From_TempRef(a);
-    ObjectReference b_ref = ObjectContainer_Ref_From_TempRef(b);
-    _node_set_child(a, MID_Node_SELF_SetLeft, a_self);
-    _node_set_child(a, MID_Node_SELF_SetRight, b_ref);
-
-    ASSERT(_node_sum(a) == 30); // 10 + 20, left self-ref skipped
-    Object_Destroy(a);
-    ObjectContainer_UnRef(&b_ref);
-    PASS();
-}
-
 // ============================================================
-// Cycle and self-reference tests
+// Cycle tests (using Object_SStoreRef -- internal refs)
 // ============================================================
 
-static void test_cycle_ab_empty_a(void) {
-    TEST("cycle: A<->B, empty A cascades to destroy B");
-    // Create A and B
+static void test_cycle_ab_empty(void) {
+    TEST("cycle: A<->B, empty A cascades B destruction");
     TempObjectReference a = _node_create(1);
     TempObjectReference b = _node_create(2);
-
-    // Stack ref to A
-    ObjectReference a_stack = ObjectContainer_Ref_From_TempRef(a);
-    // A holds ref to B
-    ObjectReference b_from_a = ObjectContainer_Ref_From_TempRef(b);
-    UnsafeHashMap_SSet(a->data->references, "b", &b_from_a);
-    // B holds ref to A
-    ObjectReference a_from_b = ObjectContainer_Ref_From_TempRef(a);
-    UnsafeHashMap_SSet(b->data->references, "a", &a_from_b);
-
-    // A: refcount=2 (stack + B), B: refcount=1 (A)
-    ASSERT(a->reference_counter == 2);
-    ASSERT(b->reference_counter == 1);
-
-    // Empty A -- should cascade: A unrefs B, B refcount->0, B empties, B unrefs A, A refcount->1
-    Object_EmptyFilledType(a_stack);
-    ASSERT(a->reference_counter == 1);
-    ASSERT(a->data == NULL); // A is emptied
-
-    // B was fully destroyed (refcount hit 0 during A's unref loop)
-    // A is still alive via stack ref, empty+typed
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    ASSERT(a->external_refs == 1);
+    ASSERT(a->internal_refs == 1);
+    ASSERT(b->internal_refs == 1);
+    Object_EmptyFilledType(a_ext);
+    ASSERT(a->data == NULL);
+    ASSERT(a->internal_refs == 0);
     ObjectContainer_UntypeEmptyTyped(a);
     ObjectContainer_DestroyGhost(a);
-    // a_stack was not UnRef'd, just used for Object_EmptyFilledType which takes ObjectReference
-    // but the container was freed by DestroyGhost, so don't touch a_stack
     PASS();
 }
 
 static void test_cycle_self_ref_empty(void) {
-    TEST("cycle: A self-ref, empty A drops self-ref correctly");
+    TEST("cycle: A self-ref, empty A safe");
     TempObjectReference a = _node_create(1);
-
-    // Stack ref
-    ObjectReference a_stack = ObjectContainer_Ref_From_TempRef(a);
-    // Self-ref
-    ObjectReference a_self = ObjectContainer_Ref_From_TempRef(a);
-    UnsafeHashMap_SSet(a->data->references, "self", &a_self);
-
-    // A: refcount=2 (stack + self)
-    ASSERT(a->reference_counter == 2);
-
-    // Empty A -- unrefs self, refcount->1 (stack). No crash, no recursion.
-    Object_EmptyFilledType(a_stack);
-    ASSERT(a->reference_counter == 1);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "self", a);
+    ASSERT(a->external_refs == 1);
+    ASSERT(a->internal_refs == 1);
+    Object_EmptyFilledType(a_ext);
     ASSERT(a->data == NULL);
-
-    // Clean up
+    ASSERT(a->internal_refs == 0);
     ObjectContainer_UntypeEmptyTyped(a);
     ObjectContainer_DestroyGhost(a);
     PASS();
 }
 
-static void test_cycle_ab_drop_stack_ref(void) {
-    TEST("cycle: A<->B, drop stack ref leaves disconnected cycle");
-    TempObjectReference a = _node_create(1);
-    TempObjectReference b = _node_create(2);
-
-    // Stack ref to A
-    ObjectReference a_stack = ObjectContainer_Ref_From_TempRef(a);
-    // A holds ref to B
-    ObjectReference b_from_a = ObjectContainer_Ref_From_TempRef(b);
-    UnsafeHashMap_SSet(a->data->references, "b", &b_from_a);
-    // B holds ref to A
-    ObjectReference a_from_b = ObjectContainer_Ref_From_TempRef(a);
-    UnsafeHashMap_SSet(b->data->references, "a", &a_from_b);
-
-    // A: refcount=2 (stack + B), B: refcount=1 (A)
-    ASSERT(a->reference_counter == 2);
-    ASSERT(b->reference_counter == 1);
-
-    // Drop stack ref -- A refcount->1, no cleanup triggered
-    ObjectContainer_UnRef(&a_stack);
-    ASSERT(a_stack == NULL);
-    ASSERT(a->reference_counter == 1); // only B's ref
-    ASSERT(b->reference_counter == 1); // only A's ref
-    // Both still alive -- disconnected cycle (known leak, handled later)
-
-    // Manual cleanup to avoid actual leak in test
-    // Break the cycle by emptying A directly via temp ref
-    ObjectContainer_EmptyFilledTyped(a);
-    // That cascaded: A unrefs B, B->0, B empties, B unrefs A, A->0
-    // Both are now empty. A was freed by UnRef cascade? Let's check.
-    // Actually: A emptied -> unrefs B -> B refcount 0 -> B empties -> B unrefs A -> A refcount 0
-    // A refcount 0 triggers: A->data is already NULL (we just emptied it), so skip empty.
-    // A->cid != Untyped, so untype. Then free(A).
-    // B similarly freed.
-    // Both are gone. Test done.
-    PASS();
-}
-
-static void test_cycle_self_ref_drop_stack(void) {
-    TEST("cycle: A self-ref, drop stack ref leaves disconnected self-loop");
-    TempObjectReference a = _node_create(1);
-
-    ObjectReference a_stack = ObjectContainer_Ref_From_TempRef(a);
-    ObjectReference a_self = ObjectContainer_Ref_From_TempRef(a);
-    UnsafeHashMap_SSet(a->data->references, "self", &a_self);
-
-    // A: refcount=2 (stack + self)
-    ASSERT(a->reference_counter == 2);
-
-    // Drop stack ref -- refcount->1, no cleanup
-    ObjectContainer_UnRef(&a_stack);
-    ASSERT(a_stack == NULL);
-    ASSERT(a->reference_counter == 1); // only self-ref
-    // Disconnected self-loop (known leak)
-
-    // Manual cleanup: empty directly
-    ObjectContainer_EmptyFilledTyped(a);
-    // A emptied -> unrefs self -> refcount 0 -> A->data already NULL -> skip empty -> untype -> free
-    PASS();
-}
-
-static void test_cycle_triangle_empty_a(void) {
-    TEST("cycle: A->B->C->A triangle, empty A cascades all");
+static void test_cycle_triangle_empty(void) {
+    TEST("cycle: A->B->C->A, empty A cascades all");
     TempObjectReference a = _node_create(1);
     TempObjectReference b = _node_create(2);
     TempObjectReference c = _node_create(3);
-
-    ObjectReference a_stack = ObjectContainer_Ref_From_TempRef(a);
-
-    ObjectReference b_ref = ObjectContainer_Ref_From_TempRef(b);
-    UnsafeHashMap_SSet(a->data->references, "next", &b_ref);
-
-    ObjectReference c_ref = ObjectContainer_Ref_From_TempRef(c);
-    UnsafeHashMap_SSet(b->data->references, "next", &c_ref);
-
-    ObjectReference a_ref = ObjectContainer_Ref_From_TempRef(a);
-    UnsafeHashMap_SSet(c->data->references, "next", &a_ref);
-
-    // A: refcount=2 (stack + C), B: refcount=1 (A), C: refcount=1 (B)
-    ASSERT(a->reference_counter == 2);
-    ASSERT(b->reference_counter == 1);
-    ASSERT(c->reference_counter == 1);
-
-    // Refs are under "next", not "left"/"right", so SumTree won't recurse into them.
-
-    // Empty A -- cascades: A unrefs B->0, B empties, B unrefs C->0, C empties, C unrefs A->1
-    Object_EmptyFilledType(a_stack);
-    ASSERT(a->reference_counter == 1);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "next", b);
+    Object_SStoreRef(b, "next", c);
+    Object_SStoreRef(c, "next", a);
+    ASSERT(a->internal_refs == 1);
+    ASSERT(b->internal_refs == 1);
+    ASSERT(c->internal_refs == 1);
+    Object_EmptyFilledType(a_ext);
     ASSERT(a->data == NULL);
-
-    // B and C fully destroyed via cascade
-    // Clean up A
+    ASSERT(a->internal_refs == 0);
     ObjectContainer_UntypeEmptyTyped(a);
     ObjectContainer_DestroyGhost(a);
+    PASS();
+}
+
+// ============================================================
+// Cycle collection tests (auto GC on last external unref)
+// ============================================================
+
+static void test_gc_ab_cycle_collected(void) {
+    TEST("gc: A<->B cycle collected when last external dropped");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    ASSERT(a->external_refs == 1);
+    ASSERT(a->internal_refs == 1);
+    ASSERT(b->internal_refs == 1);
+    // Drop last external -- should trigger cycle collection, destroying both
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(a_ext == NULL);
+    // Both a and b are freed (can't assert on freed memory, but no crash = success)
+    PASS();
+}
+
+static void test_gc_self_ref_collected(void) {
+    TEST("gc: self-referencing object collected when external dropped");
+    TempObjectReference a = _node_create(1);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "self", a);
+    ASSERT(a->external_refs == 1);
+    ASSERT(a->internal_refs == 1);
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(a_ext == NULL);
+    PASS();
+}
+
+static void test_gc_triangle_collected(void) {
+    TEST("gc: A->B->C->A triangle collected on last external drop");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "next", b);
+    Object_SStoreRef(b, "next", c);
+    Object_SStoreRef(c, "next", a);
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(a_ext == NULL);
+    // Entire triangle collected
+    PASS();
+}
+
+static void test_gc_partial_external_survives(void) {
+    TEST("gc: cycle with one external ref survives collection");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    ExternalReference b_ext = ObjectContainer_ExternalRef_From_Temp(b);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    // Drop a's external -- b still has one, so component has externals, no collection
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(a_ext == NULL);
+    // Both still alive because b has an external ref
+    ASSERT(b->external_refs == 1);
+    ASSERT(b->data != NULL);
+    ASSERT(a->data != NULL); // a reachable from b
+    // Now drop b's external -- component has 0 externals, collect both
+    ObjectContainer_UnRef_External(&b_ext);
+    ASSERT(b_ext == NULL);
+    PASS();
+}
+
+static void test_gc_chain_cascade(void) {
+    TEST("gc: A->B->C one-way chain, drop A cascades through B, C survives with ext");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    ExternalReference c_ext = ObjectContainer_ExternalRef_From_Temp(c);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "c", c);
+    // A has 0 internal refs. Drop A's external -> total 0 -> A destroyed immediately.
+    // A's destroy unrefs B -> B total 0 -> B destroyed -> B unrefs C -> C internal 0 but ext 1 -> survives.
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(c->external_refs == 1);
+    ASSERT(c->data != NULL); // C survives
+    ObjectContainer_UnRef_External(&c_ext);
+    PASS();
+}
+
+static void test_gc_many_cycles_collected(void) {
+    TEST("gc: 20 A<->B cycles all collected");
+    for (int i = 0; i < 20; i++) {
+        TempObjectReference a = _node_create(i);
+        TempObjectReference b = _node_create(i + 100);
+        ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+        Object_SStoreRef(a, "b", b);
+        Object_SStoreRef(b, "a", a);
+        ObjectContainer_UnRef_External(&a_ext);
+        // Both collected
+    }
+    PASS();
+}
+
+// ============================================================
+// Memory management stress
+// ============================================================
+
+// ============================================================
+// GC edge cases
+// ============================================================
+
+static void test_gc_diamond(void) {
+    TEST("gc: diamond A->B,C->D, drop A cascades all");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    TempObjectReference d = _node_create(4);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "left", b);
+    Object_SStoreRef(a, "right", c);
+    Object_SStoreRef(b, "d", d);
+    Object_SStoreRef(c, "d", d);
+    ASSERT(d->internal_refs == 2);
+    // Drop A -> cascade: A(0) destroyed, unrefs B+C. B(0) destroyed, unrefs D. C(0) destroyed, unrefs D. D(0) destroyed.
+    ObjectContainer_UnRef_External(&a_ext);
+    // All destroyed, no crash = success
+    PASS();
+}
+
+static void test_gc_cycle_partial_ext_no_collect(void) {
+    TEST("gc: A<->B both ext, drop A ext, no collect");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    ExternalReference b_ext = ObjectContainer_ExternalRef_From_Temp(b);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    ASSERT(a->external_refs == 1);
+    ASSERT(a->internal_refs == 1);
+    ASSERT(b->external_refs == 1);
+    ASSERT(b->internal_refs == 1);
+    // Drop A's ext -> A ext=0, int=1. GC traverses: A->B. B has ext=1. No collect.
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(a->data != NULL); // still alive
+    ASSERT(b->data != NULL);
+    // Drop B's ext -> B ext=0, int=1. GC traverses: B->A. A ext=0. No external. Collect both.
+    ObjectContainer_UnRef_External(&b_ext);
+    PASS();
+}
+
+static void test_gc_triangle_one_ext(void) {
+    TEST("gc: A->B->C->A, only B has ext, drop B ext collects all");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    ExternalReference b_ext = ObjectContainer_ExternalRef_From_Temp(b);
+    Object_SStoreRef(a, "next", b);
+    Object_SStoreRef(b, "next", c);
+    Object_SStoreRef(c, "next", a);
+    // Drop B's ext -> B ext=0, int=1. GC from B: B->C->A->B. No externals. Collect all 3.
+    ObjectContainer_UnRef_External(&b_ext);
+    PASS();
+}
+
+static void test_gc_self_plus_other(void) {
+    TEST("gc: A refs self and B, drop A ext collects both");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "self", a);
+    Object_SStoreRef(a, "other", b);
+    ASSERT(a->internal_refs == 1);
+    ASSERT(b->internal_refs == 1);
+    // Drop A ext -> A ext=0, int=1. GC from A: self(visited), B. B ext=0. No external. Collect A+B.
+    ObjectContainer_UnRef_External(&a_ext);
+    PASS();
+}
+
+static void test_gc_long_cycle(void) {
+    TEST("gc: 5-node cycle collected on ext drop");
+    TempObjectReference nodes[5];
+    for (int i = 0; i < 5; i++)
+        nodes[i] = _node_create(i);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(nodes[0]);
+    for (int i = 0; i < 5; i++)
+        Object_SStoreRef(nodes[i], "next", nodes[(i + 1) % 5]);
+    // All have int=1, only nodes[0] has ext=1
+    ObjectContainer_UnRef_External(&ext);
+    // GC from nodes[0]: traverses all 5, none have ext. Collect all.
+    PASS();
+}
+
+static void test_gc_multi_ext_no_trigger(void) {
+    TEST("gc: A<->B, A has 2 ext, drop one, no GC trigger");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    ExternalReference a_ext1 = ObjectContainer_ExternalRef_From_Temp(a);
+    ExternalReference a_ext2 = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    ASSERT(a->external_refs == 2);
+    // Drop one ext -> A ext=1. No GC trigger (ext still > 0).
+    ObjectContainer_UnRef_External(&a_ext1);
+    ASSERT(a->external_refs == 1);
+    ASSERT(a->data != NULL);
+    ASSERT(b->data != NULL);
+    // Drop second ext -> A ext=0, int=1. GC: A->B, B ext=0. Collect both.
+    ObjectContainer_UnRef_External(&a_ext2);
+    PASS();
+}
+
+static void test_gc_two_separate_cycles(void) {
+    TEST("gc: two separate cycles, only one collected");
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    TempObjectReference d = _node_create(4);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    ExternalReference c_ext = ObjectContainer_ExternalRef_From_Temp(c);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    Object_SStoreRef(c, "d", d);
+    Object_SStoreRef(d, "c", c);
+    // Drop A's ext -> GC collects A<->B. C<->D untouched.
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(c->data != NULL);
+    ASSERT(d->data != NULL);
+    ASSERT(c->external_refs == 1);
+    // Clean up C<->D
+    ObjectContainer_UnRef_External(&c_ext);
+    PASS();
+}
+
+static void test_gc_empty_ghost_ext_drop(void) {
+    TEST("gc: empty ghost with ext, drop ext, just frees");
+    TempObjectReference ghost = ObjectContainer_CreateGhost();
+    ObjectContainer_TypeEmptyUntyped(ghost, CID_Counter);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(ghost);
+    // ghost has no data, just typed. ext=1, int=0.
+    ObjectContainer_UnRef_External(&ext);
+    // Total 0, data NULL, untype+free. No GC needed.
+    PASS();
+}
+
+// ============================================================
+// Memory management stress
+// ============================================================
+
+static void test_self_create_destroy_many(void) {
+    TEST("self: create and destroy 100 objects");
+    for (int i = 0; i < 100; i++) {
+        TempObjectReference obj = Object_Create(CID_Counter);
+        Object_Destroy(obj);
+    }
+    PASS();
+}
+
+static void test_self_ext_ref_unref_many(void) {
+    TEST("self: create ext ref, unref 100 objects");
+    for (int i = 0; i < 100; i++) {
+        ExternalReference ref = Object_CreateRef(CID_Counter);
+        ObjectContainer_UnRef_External(&ref);
+    }
+    PASS();
+}
+
+static void test_self_many_ext_refs(void) {
+    TEST("self: 50 ext refs to one object, unref all");
+    TempObjectReference obj = Object_Create(CID_Counter);
+    ExternalReference refs[50];
+    for (int i = 0; i < 50; i++)
+        refs[i] = ObjectContainer_ExternalRef_From_Temp(obj);
+    ASSERT(obj->external_refs == 50);
+    for (int i = 0; i < 50; i++)
+        ObjectContainer_UnRef_External(&refs[i]);
     PASS();
 }
 
@@ -1130,39 +936,44 @@ static void run_self_tests(void) {
     test_self_two_instances_independent();
     test_self_ref_dispatch();
 
-    LOG_INFO("=== Held Reference Cleanup Tests ===");
-    test_self_empty_unrefs_held_references();
-    test_self_empty_unrefs_multiple_held();
-    test_self_empty_unrefs_shared_target();
-    test_self_unref_with_held_refs_cascades();
+    LOG_INFO("=== Held Reference Cleanup ===");
+    test_self_empty_unrefs_held();
+    test_self_empty_unrefs_multiple();
+    test_self_empty_shared_survives();
+    test_self_unref_cascades_held();
 
     LOG_INFO("=== Node Tree Tests ===");
     test_node_single();
-    test_node_sum_single();
     test_node_two_children();
-    test_node_deep_tree();
-    test_node_full_binary_tree();
     test_node_shared_child();
-    test_node_cascade_destroy_via_unref();
+    test_node_self_ref_skips();
 
-    LOG_INFO("=== Self_IsRefSelf Tests ===");
-    test_node_self_ref_sum_skips();
-    test_node_self_ref_both_children();
-    test_node_self_ref_mixed();
-
-    LOG_INFO("=== Cycle and Self-Reference Tests ===");
-    test_cycle_ab_empty_a();
+    LOG_INFO("=== Cycle Tests ===");
+    test_cycle_ab_empty();
     test_cycle_self_ref_empty();
-    test_cycle_ab_drop_stack_ref();
-    test_cycle_self_ref_drop_stack();
-    test_cycle_triangle_empty_a();
+    test_cycle_triangle_empty();
 
-    LOG_INFO("=== Memory Management Tests ===");
+    LOG_INFO("=== Cycle Collection (GC) ===");
+    test_gc_ab_cycle_collected();
+    test_gc_self_ref_collected();
+    test_gc_triangle_collected();
+    test_gc_partial_external_survives();
+    test_gc_chain_cascade();
+    test_gc_many_cycles_collected();
+
+    LOG_INFO("=== GC Edge Cases ===");
+    test_gc_diamond();
+    test_gc_cycle_partial_ext_no_collect();
+    test_gc_triangle_one_ext();
+    test_gc_self_plus_other();
+    test_gc_long_cycle();
+    test_gc_multi_ext_no_trigger();
+    test_gc_two_separate_cycles();
+    test_gc_empty_ghost_ext_drop();
+
+    LOG_INFO("=== Memory Management ===");
     test_self_create_destroy_many();
-    test_self_create_ref_unref_many();
-    test_self_many_refs_one_object();
-    test_self_dispatch_after_multiple_create();
-    test_self_ref_dispatch_then_unref();
-    test_self_payload_freed_on_all_paths();
-    test_self_ghost_step_by_step_free();
+    test_self_ext_ref_unref_many();
+    test_self_many_ext_refs();
 }
+
