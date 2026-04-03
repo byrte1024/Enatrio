@@ -2,6 +2,7 @@
 
 #include "../tests.h"
 #include "Self.h"
+#include "ObjectGraphViz.h"
 
 // ============================================================
 // Test class: Counter -- an instanced class with Self
@@ -872,6 +873,36 @@ static void test_gc_empty_ghost_ext_drop(void) {
 }
 
 // ============================================================
+// Graph visualization test
+// ============================================================
+
+static void test_viz_graph(void) {
+    TEST("viz: complex graph saved to file");
+    TempObjectReference root = _node_create(1);
+    TempObjectReference a = _node_create(2);
+    TempObjectReference b = _node_create(3);
+    TempObjectReference c = _node_create(4);
+
+    ExternalReference root_e = ObjectContainer_ExternalRef_From_Temp(root);
+    ExternalReference a_e = ObjectContainer_ExternalRef_From_Temp(a);
+    ExternalReference b_e = ObjectContainer_ExternalRef_From_Temp(b);
+
+    _node_set_child(root, MID_Node_SELF_SetLeft, a_e);
+    _node_set_child(root, MID_Node_SELF_SetRight, b_e);
+    Object_SStoreRef(a, "peer", b);
+    Object_SStoreRef(b, "self_ref", b);
+    Object_SStoreRef(b, "child", c);
+
+    Object_VisualizeGraphSingle("build/tests/graph.txt", root_e);
+
+    Object_Destroy(root);
+    ObjectContainer_UnRef_External(&root_e);
+    ObjectContainer_UnRef_External(&a_e);
+    ObjectContainer_UnRef_External(&b_e);
+    PASS();
+}
+
+// ============================================================
 // Memory management stress
 // ============================================================
 
@@ -970,6 +1001,9 @@ static void run_self_tests(void) {
     test_gc_multi_ext_no_trigger();
     test_gc_two_separate_cycles();
     test_gc_empty_ghost_ext_drop();
+
+    LOG_INFO("=== Graph Visualization ===");
+    test_viz_graph();
 
     LOG_INFO("=== Memory Management ===");
     test_self_create_destroy_many();
