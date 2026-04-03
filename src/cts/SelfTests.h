@@ -483,6 +483,105 @@ static void test_self_ghost_step_by_step_free(void) {
 }
 
 // ============================================================
+// Held reference cleanup tests
+// ============================================================
+
+static void test_self_empty_unrefs_held_references(void) {
+    TEST("self: emptying object unrefs its held references");
+    // Create two objects: holder and target
+    TempObjectReference holder = Object_Create(CID_Counter);
+    TempObjectReference target = Object_Create(CID_Counter);
+
+    // Take a ref to target and store it in holder's references hashmap
+    ObjectReference target_ref = ObjectContainer_Ref_From_TempRef(target);
+    ASSERT(target->reference_counter == 1);
+
+    UnsafeHashMap_SSet(holder->data->references, "target", &target_ref);
+
+    // Empty the holder -- should UnRef the held reference to target
+    Object_EmptyFilledType(ObjectContainer_Ref_From_TempRef(holder));
+    // target's refcount should have dropped to 0, meaning it was auto-destroyed
+    // holder is now empty but still typed
+    ASSERT(holder->data == NULL);
+    ASSERT(holder->cid == CID_Counter);
+
+    // Clean up holder (empty+untype+destroy)
+    ObjectContainer_UntypeEmptyTyped(holder);
+    ObjectContainer_DestroyGhost(holder);
+    PASS();
+}
+
+static void test_self_empty_unrefs_multiple_held(void) {
+    TEST("self: emptying object unrefs multiple held references");
+    TempObjectReference holder = Object_Create(CID_Counter);
+
+    // Create 5 targets, ref them, store in holder
+    TempObjectReference targets[5];
+    for (int i = 0; i < 5; i++) {
+        targets[i] = Object_Create(CID_Counter);
+        ObjectReference ref = ObjectContainer_Ref_From_TempRef(targets[i]);
+        char key[16];
+        snprintf(key, sizeof(key), "t%d", i);
+        UnsafeHashMap_Set(holder->data->references, key, (uint32_t)strlen(key), &ref);
+    }
+
+    // All targets have refcount 1
+    for (int i = 0; i < 5; i++) {
+        ASSERT(targets[i]->reference_counter == 1);
+    }
+
+    // Empty holder -- all 5 refs should be unref'd, destroying all targets
+    Object_EmptyFilledType(ObjectContainer_Ref_From_TempRef(holder));
+
+    // Clean up holder
+    ObjectContainer_UntypeEmptyTyped(holder);
+    ObjectContainer_DestroyGhost(holder);
+    PASS();
+}
+
+static void test_self_empty_unrefs_shared_target(void) {
+    TEST("self: emptying with shared ref only decrements, not destroys");
+    TempObjectReference holder = Object_Create(CID_Counter);
+    TempObjectReference target = Object_Create(CID_Counter);
+
+    // Two refs to target: one held by holder, one external
+    ObjectReference ext_ref = ObjectContainer_Ref_From_TempRef(target);
+    ObjectReference held_ref = ObjectContainer_Ref_From_TempRef(target);
+    ASSERT(target->reference_counter == 2);
+
+    UnsafeHashMap_SSet(holder->data->references, "shared", &held_ref);
+
+    // Empty holder -- decrements target refcount but doesn't destroy it
+    Object_EmptyFilledType(ObjectContainer_Ref_From_TempRef(holder));
+    ASSERT(target->reference_counter == 1);
+    ASSERT(target->data != NULL); // still alive
+
+    // Clean up
+    ObjectContainer_UntypeEmptyTyped(holder);
+    ObjectContainer_DestroyGhost(holder);
+    ObjectContainer_UnRef(&ext_ref); // last ref, destroys target
+    ASSERT(ext_ref == NULL);
+    PASS();
+}
+
+static void test_self_unref_with_held_refs_cascades(void) {
+    TEST("self: UnRef on holder cascades to held refs");
+    ObjectReference holder_ref = Object_CreateRef(CID_Counter);
+    TempObjectReference target = Object_Create(CID_Counter);
+
+    ObjectReference target_ref = ObjectContainer_Ref_From_TempRef(target);
+    ASSERT(target->reference_counter == 1);
+
+    UnsafeHashMap_SSet(holder_ref->data->references, "child", &target_ref);
+
+    // UnRef holder -- destroys holder, which empties it, which unrefs target
+    ObjectContainer_UnRef(&holder_ref);
+    ASSERT(holder_ref == NULL);
+    // target was also destroyed (refcount went to 0)
+    PASS();
+}
+
+// ============================================================
 // Runner
 // ============================================================
 
@@ -511,6 +610,12 @@ static void run_self_tests(void) {
     test_self_counter_reset();
     test_self_two_instances_independent();
     test_self_ref_dispatch();
+
+    LOG_INFO("=== Held Reference Cleanup Tests ===");
+    test_self_empty_unrefs_held_references();
+    test_self_empty_unrefs_multiple_held();
+    test_self_empty_unrefs_shared_target();
+    test_self_unref_with_held_refs_cascades();
 
     LOG_INFO("=== Memory Management Tests ===");
     test_self_create_destroy_many();

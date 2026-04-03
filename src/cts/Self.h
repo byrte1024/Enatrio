@@ -216,6 +216,17 @@ static void ObjectContainer_FillEmptyTyped(TempObjectReference container){
     FreePayload(&payload);
     
 }
+// Forward declaration (needed because EmptyFilledTyped unrefs held references)
+static inline void ObjectContainer_UnRef(ObjectReference* ref);
+
+static void _ObjectContainer_UnRefEach(const void *key, uint32_t key_len, void *value) {
+    (void)key; (void)key_len;
+    ObjectReference *ref = (ObjectReference *)value;
+    if (ref != NULL && *ref != NULL) {
+        ObjectContainer_UnRef(ref);
+    }
+}
+
 //Object container must be: 1. full (not empty), 2. typed (not untyped)
 static void ObjectContainer_EmptyFilledTyped(TempObjectReference container){
     if(container == NULL){
@@ -251,8 +262,8 @@ static void ObjectContainer_EmptyFilledTyped(TempObjectReference container){
 
     UnsafeVariedHashMap_Destroy(container->data->values);
 
-    //freeing references is a bit more complex, need to decrement ref counter not them, empty for now since i didnt emplement ref functions yet rip.
-
+    // UnRef all held references before destroying the hashmap
+    UnsafeHashMap_ForEach(container->data->references, _ObjectContainer_UnRefEach);
     UnsafeHashMap_Destroy(container->data->references);
 
     free(container->data);
@@ -358,6 +369,53 @@ static inline void Object_Destroy(TempObjectReference obj) {
         ObjectContainer_UntypeEmptyTyped(obj);
     }
     ObjectContainer_DestroyGhost(obj);
+}
+
+// Empties a filled+typed object. Data is freed, type remains. Refs stay valid.
+//   Object_Empty(obj);
+static inline void Object_EmptyFilledType(ObjectReference obj) {
+    if (obj == NULL) {
+        LOG_ERROR("Cannot empty NULL object.");
+        return;
+    }
+    if (obj->data == NULL) {
+        LOG_ERROR("Object is already empty.");
+        return;
+    }
+    ObjectContainer_EmptyFilledTyped(ObjectContainer_TempRef_From_Ref(obj));
+}
+
+// Untypes an empty+typed object. Refs stay valid.
+//   Object_Untype(obj);
+static inline void Object_UntypeEmptyTyped(ObjectReference obj) {
+    if (obj == NULL) {
+        LOG_ERROR("Cannot untype NULL object.");
+        return;
+    }
+    if (obj->data != NULL) {
+        LOG_ERROR("Cannot untype a filled object. Empty it first.");
+        return;
+    }
+    if (obj->cid == CID_Untyped) {
+        LOG_ERROR("Object is already untyped.");
+        return;
+    }
+    ObjectContainer_UntypeEmptyTyped(ObjectContainer_TempRef_From_Ref(obj));
+}
+
+// Empties and untypes in one call. Refs stay valid, object becomes a ghost.
+//   Object_EmptyAndUntype(obj);
+static inline void Object_EmptyAndUntypeFilledType(ObjectReference obj) {
+    if (obj == NULL) {
+        LOG_ERROR("Cannot empty+untype NULL object.");
+        return;
+    }
+    if (obj->data != NULL) {
+        ObjectContainer_EmptyFilledTyped(ObjectContainer_TempRef_From_Ref(obj));
+    }
+    if (obj->cid != CID_Untyped) {
+        ObjectContainer_UntypeEmptyTyped(ObjectContainer_TempRef_From_Ref(obj));
+    }
 }
 
 // Create and immediately take a reference. Returns ObjectReference (refcount = 1).
