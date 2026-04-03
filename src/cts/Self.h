@@ -42,9 +42,10 @@ typedef struct ObjectContainer* TempObjectReference;
     MH_Require(Self); \
     TempObjectReference Self = MH_GetDeref(Self, TempObjectReference);
 
-// Opens a self message handler under an EXTERN class. Auto-extracts Self.
+// Opens a self message handler for an extern class's MID, under TYPE's namespace.
 // Use for Default lifecycle messages (Create, Destroy).
 //   SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Create)
+//   With TYPE=Counter -> MESSAGE_HANDLER_Counter_Default_SELF_Create
 #define SELF_MESSAGE_HANDLER_BEGIN_EXTERN(classname, msgname) \
     MESSAGE_HANDLER_BEGIN_EXTERN(classname, BAT2(SELF_, msgname)) \
     MH_Require(Self); \
@@ -260,27 +261,32 @@ static void ObjectContainer_EmptyFilledTyped(TempObjectReference container){
     }
     FreePayload(&payload);
 
-    UnsafeVariedHashMap_Destroy(container->data->values);
+    // Detach data BEFORE unreffing held references.
+    // This prevents re-entrant EmptyFilledTyped if a self-reference causes
+    // UnRef to try emptying us again (data == NULL guard catches it).
+    ObjectData *data = container->data;
+    container->data = NULL;
+
+    UnsafeVariedHashMap_Destroy(data->values);
 
     // UnRef all held references before destroying the hashmap
-    UnsafeHashMap_ForEach(container->data->references, _ObjectContainer_UnRefEach);
-    UnsafeHashMap_Destroy(container->data->references);
+    UnsafeHashMap_ForEach(data->references, _ObjectContainer_UnRefEach);
+    UnsafeHashMap_Destroy(data->references);
 
-    free(container->data);
-    container->data = NULL;
+    free(data);
 }
     
 static void ObjectContainer_UntypeEmptyTyped(TempObjectReference container){
     if(container == NULL){
-        LOG_ERROR("ObjectContainer is destroyed, cannot unype.");
+        LOG_ERROR("ObjectContainer is destroyed, cannot untype.");
         return;
     }
     if(container->cid == CID_Untyped){
-        LOG_ERROR("ObjectContainer is untyped (%s), cannot unype", CLASSID_TOSTRING(container->cid));
+        LOG_ERROR("ObjectContainer is untyped (%s), cannot untype", CLASSID_TOSTRING(container->cid));
         return;
     }
     if(container->data != NULL){
-        LOG_ERROR("ObjectContainer is full, cannot unype");
+        LOG_ERROR("ObjectContainer is full, cannot untype");
         return;
     }
 
@@ -458,3 +464,34 @@ static inline ObjectReference Object_CreateRef(ClassID cid) {
 //   if (Self_Has("health")) { ... }
 #define Self_Has(str_key) \
     UnsafeVariedHashMap_SHas(Self_Values, str_key)
+
+// ---- Self reference macros ----
+
+// Store a new ObjectReference from an existing ObjectReference (increments refcount).
+//   Self_RefFrom("target", some_ref);
+#define Self_RefFrom(str_key, ref) do { \
+    ObjectReference _sr_ref = ObjectContainer_Ref_From_Ref(ref); \
+    UnsafeHashMap_SSet(Self_Refs, str_key, &_sr_ref); \
+} while (0)
+
+// Store a new ObjectReference from a TempObjectReference (increments refcount).
+//   Self_RefFromTemp("target", some_temp);
+#define Self_RefFromTemp(str_key, tref) do { \
+    ObjectReference _sr_ref = ObjectContainer_Ref_From_TempRef(tref); \
+    UnsafeHashMap_SSet(Self_Refs, str_key, &_sr_ref); \
+} while (0)
+
+// Get a stored ObjectReference by key (does NOT increment refcount).
+//   ObjectReference r = Self_GetRef("target");
+#define Self_GetRef(str_key) \
+    (*(ObjectReference*)UnsafeHashMap_SGet(Self_Refs, str_key))
+
+// Check if Self holds a reference by key.
+//   if (Self_HasRef("target")) { ... }
+#define Self_HasRef(str_key) \
+    UnsafeHashMap_SHas(Self_Refs, str_key)
+
+// Check if a stored reference points back to Self.
+//   if (Self_IsRefSelf("left")) { ... } // true if left == Self
+#define Self_IsRefSelf(str_key) \
+    (Self_HasRef(str_key) && Self_GetRef(str_key) == Self)

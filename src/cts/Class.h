@@ -315,10 +315,11 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     static void BAT4(MESSAGE_HANDLER_, TYPE, _, handlername)(MessagePayload* payload) { \
         payload->result = MESSAGE_RESULT_SUCCESS;
 
-// Opens a message handler using another class's namespace.
+// Opens a message handler for an extern class's MID, under TYPE's namespace.
 //   MESSAGE_HANDLER_BEGIN_EXTERN(Default, SELF_Create)
+//   With TYPE=Counter -> MESSAGE_HANDLER_Counter_Default_SELF_Create
 #define MESSAGE_HANDLER_BEGIN_EXTERN(classname, handlername) \
-    static void BAT4(MESSAGE_HANDLER_, classname, _, handlername)(MessagePayload* payload) { \
+    static void BAT6(MESSAGE_HANDLER_, TYPE, _, classname, _, handlername)(MessagePayload* payload) { \
         payload->result = MESSAGE_RESULT_SUCCESS;
 
 // Closes a message handler function.
@@ -421,11 +422,12 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
             BAT4(MESSAGE_HANDLER_, TYPE, _, msgname)(payload); \
         }
 
-// Routes a MID to a handler from another class's namespace.
+// Routes an extern class's MID to TYPE's handler for it.
 //   RECEIVE_MESSAGE_ROUTE_EXTERN(Default, SELF_Create)
+//   Matches MID_Default_SELF_Create, calls MESSAGE_HANDLER_Counter_Default_SELF_Create
 #define RECEIVE_MESSAGE_ROUTE_EXTERN(classname, msgname) \
         else if (strcmp(payload->mid, BAT4(MID_, classname, _, msgname)) == 0) { \
-            BAT4(MESSAGE_HANDLER_, classname, _, msgname)(payload); \
+            BAT6(MESSAGE_HANDLER_, TYPE, _, classname, _, msgname)(payload); \
         }
 
 // Closes ReceiveMessage (else branch sets NOT_SUPPORTED for unmatched).
