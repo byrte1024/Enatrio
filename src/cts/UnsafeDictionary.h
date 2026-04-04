@@ -255,11 +255,15 @@ static void UnsafeDictionary_Print(UnsafeDictionary *dict, UnsafeDictFormatter f
 // Prints the dictionary using a printf-style format for values.
 //   UnsafeDictionary_PrintF(dict, int, "%d", 1);       // string keys
 //   UnsafeDictionary_PrintF(dict, float, "%.2f", 0);   // hex keys
+static const char   *_udict_pf_fmt = NULL;
+static uint32_t      _udict_pf_esz = 0;
+static void _udict_pf_fn(const void *v, char *b, uint32_t s) {
+    _unsafe_fmt_snprintf(v, b, s, _udict_pf_fmt, _udict_pf_esz);
+}
 #define UnsafeDictionary_PrintF(dict, type, fmt, string_keys) do { \
-    void _udf_fn(const void *_v, char *_b, uint32_t _s) { \
-        snprintf(_b, _s, fmt, *(const type *)_v); \
-    } \
-    UnsafeDictionary_Print(dict, _udf_fn, string_keys); \
+    _udict_pf_fmt = (fmt); \
+    _udict_pf_esz = (uint32_t)sizeof(type); \
+    UnsafeDictionary_Print(dict, _udict_pf_fn, string_keys); \
 } while (0)
 
 // --- Log variants (LOG_INFO per line, no \n needed) ---
@@ -328,11 +332,15 @@ static void UnsafeDictionary_Log(UnsafeDictionary *dict, UnsafeDictFormatter fmt
 // Logs the dictionary using LOG_INFO with a printf-style format for values.
 //   UnsafeDictionary_LogF(dict, int, "%d", 1);       // string keys
 //   UnsafeDictionary_LogF(dict, float, "%.2f", 0);   // hex keys
+static const char   *_udict_lf_fmt = NULL;
+static uint32_t      _udict_lf_esz = 0;
+static void _udict_lf_fn(const void *v, char *b, uint32_t s) {
+    _unsafe_fmt_snprintf(v, b, s, _udict_lf_fmt, _udict_lf_esz);
+}
 #define UnsafeDictionary_LogF(dict, type, fmt, string_keys) do { \
-    void _udlf_fn(const void *_v, char *_b, uint32_t _s) { \
-        snprintf(_b, _s, fmt, *(const type *)_v); \
-    } \
-    UnsafeDictionary_Log(dict, _udlf_fn, string_keys); \
+    _udict_lf_fmt = (fmt); \
+    _udict_lf_esz = (uint32_t)sizeof(type); \
+    UnsafeDictionary_Log(dict, _udict_lf_fn, string_keys); \
 } while (0)
 
 // ============================================================

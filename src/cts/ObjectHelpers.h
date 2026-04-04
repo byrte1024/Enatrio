@@ -1,7 +1,6 @@
 #pragma once
 
-// Object helper functions and Self_ macros.
-// Included by Self.h -- do not include directly.
+#include "ObjectRef.h"
 
 // ============================================================
 // Object lifecycle helpers

@@ -125,3 +125,40 @@ static void UnsafeArray_Log(UnsafeArray *arr, UnsafeArrayFormatter fmt) {
     } \
     LOG_INFO("}"); \
 } while (0)
+
+// ============================================================
+// Shared formatter helper for PrintF/LogF macros in collection types.
+// Inspects the conversion specifier to pass the value as float or integer.
+// Used by UnsafeDictionary and UnsafeHashMap PrintF/LogF trampolines.
+// ============================================================
+
+static void _unsafe_fmt_snprintf(const void *v, char *b, uint32_t s, const char *fmt, uint32_t elem_size) {
+    // Find the last conversion character in the format string
+    const char *p = fmt;
+    char conv = 'd';
+    while (*p) {
+        if (*p == '%' && *(p + 1) != '%') {
+            const char *q = p + 1;
+            while (*q == '-' || *q == '+' || *q == ' ' || *q == '0' || *q == '#') q++;
+            while (*q >= '0' && *q <= '9') q++;
+            if (*q == '.') { q++; while (*q >= '0' && *q <= '9') q++; }
+            while (*q == 'h' || *q == 'l' || *q == 'L' || *q == 'j' || *q == 'z' || *q == 't') q++;
+            if (*q) conv = *q;
+        }
+        p++;
+    }
+    if (conv == 'f' || conv == 'e' || conv == 'g' || conv == 'a' ||
+        conv == 'F' || conv == 'E' || conv == 'G' || conv == 'A') {
+        if (elem_size <= sizeof(float)) {
+            float f = 0; memcpy(&f, v, sizeof(f));
+            snprintf(b, (size_t)s, fmt, (double)f);
+        } else {
+            double d = 0; memcpy(&d, v, elem_size < sizeof(d) ? elem_size : sizeof(d));
+            snprintf(b, (size_t)s, fmt, d);
+        }
+    } else {
+        long long i = 0; memcpy(&i, v, elem_size < sizeof(i) ? elem_size : sizeof(i));
+        if (elem_size <= sizeof(int)) snprintf(b, (size_t)s, fmt, (int)i);
+        else                         snprintf(b, (size_t)s, fmt, i);
+    }
+}

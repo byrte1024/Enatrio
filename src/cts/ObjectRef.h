@@ -1,7 +1,6 @@
 #pragma once
 
-// Reference conversions, UnRef, and cycle GC.
-// Included by Self.h -- do not include directly.
+#include "ObjectContainer.h"
 
 // ============================================================
 // Reference conversions

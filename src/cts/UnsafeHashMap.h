@@ -247,11 +247,15 @@ static void UnsafeHashMap_Print(UnsafeHashMap *map, UnsafeHashMapFormatter fmt_v
     printf("}\n");
 }
 
+static const char   *_uhm_pf_fmt = NULL;
+static uint32_t      _uhm_pf_esz = 0;
+static void _uhm_pf_fn(const void *v, char *b, uint32_t s) {
+    _unsafe_fmt_snprintf(v, b, s, _uhm_pf_fmt, _uhm_pf_esz);
+}
 #define UnsafeHashMap_PrintF(map, type, fmt, string_keys) do { \
-    void _uhmf_fn(const void *_v, char *_b, uint32_t _s) { \
-        snprintf(_b, _s, fmt, *(const type *)_v); \
-    } \
-    UnsafeHashMap_Print(map, _uhmf_fn, string_keys); \
+    _uhm_pf_fmt = (fmt); \
+    _uhm_pf_esz = (uint32_t)sizeof(type); \
+    UnsafeHashMap_Print(map, _uhm_pf_fn, string_keys); \
 } while (0)
 
 // --- Log variants (LOG_INFO per line) ---
@@ -281,11 +285,15 @@ static void UnsafeHashMap_Log(UnsafeHashMap *map, UnsafeHashMapFormatter fmt_val
     LOG_INFO("}");
 }
 
+static const char   *_uhm_lf_fmt = NULL;
+static uint32_t      _uhm_lf_esz = 0;
+static void _uhm_lf_fn(const void *v, char *b, uint32_t s) {
+    _unsafe_fmt_snprintf(v, b, s, _uhm_lf_fmt, _uhm_lf_esz);
+}
 #define UnsafeHashMap_LogF(map, type, fmt, string_keys) do { \
-    void _uhmlf_fn(const void *_v, char *_b, uint32_t _s) { \
-        snprintf(_b, _s, fmt, *(const type *)_v); \
-    } \
-    UnsafeHashMap_Log(map, _uhmlf_fn, string_keys); \
+    _uhm_lf_fmt = (fmt); \
+    _uhm_lf_esz = (uint32_t)sizeof(type); \
+    UnsafeHashMap_Log(map, _uhm_lf_fn, string_keys); \
 } while (0)
 
 // ============================================================

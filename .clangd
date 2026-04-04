@@ -1,17 +1,7 @@
 CompileFlags:
   Add:
-    - --target=x86_64-w64-mingw32
-    - -std=c2x
     - -Wall
     - -Wextra
-    - -xc
-    - -IC:/Users/User/repos/Enatrio/lib/raylib/include
-    - --no-standard-includes
-    - -isystem
-    - C:/msys64/ucrt64/lib/gcc/x86_64-w64-mingw32/15.2.0/include
-    - -isystem
-    - C:/msys64/ucrt64/include
-  Compiler: C:/msys64/ucrt64/bin/gcc.exe
 
 Diagnostics:
   UnusedIncludes: Strict

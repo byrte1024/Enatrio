@@ -1,7 +1,6 @@
 #pragma once
 
-// ObjectContainer lifecycle functions.
-// Included by Self.h -- do not include directly.
+#include "ObjectTypes.h"
 
 // ============================================================
 // Global object registry
