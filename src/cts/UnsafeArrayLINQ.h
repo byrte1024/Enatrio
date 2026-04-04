@@ -25,11 +25,12 @@ static UnsafeArray *UnsafeArray_Where(UnsafeArray *arr, UnsafePredicate predicat
 // Returns a new array with each element transformed. dst_element_size is the size of the output type.
 static UnsafeArray *UnsafeArray_Select(UnsafeArray *arr, UnsafeTransform transform, uint32_t dst_element_size) {
     UnsafeArray *result = UnsafeArray_Create(dst_element_size, arr->count > 0 ? arr->count : 1);
-    uint8_t tmp[256];
+    uint8_t *tmp = (uint8_t *)malloc(dst_element_size);
     for (uint32_t i = 0; i < arr->count; i++) {
         transform(UnsafeArray_Get(arr, i), tmp);
         UnsafeArray_Add(result, tmp);
     }
+    free(tmp);
     return result;
 }
 
@@ -173,18 +174,19 @@ static void UnsafeArray_OrderBy(UnsafeArray *arr, UnsafeComparator cmp) {
 // Reverses the array in place.
 static void UnsafeArray_Reverse(UnsafeArray *arr) {
     if (arr->count < 2) return;
-    uint8_t tmp[256];
+    uint8_t *tmp = (uint8_t *)malloc(arr->element_size);
     for (uint32_t i = 0, j = arr->count - 1; i < j; i++, j--) {
         memcpy(tmp, UnsafeArray_Get(arr, i), arr->element_size);
         memcpy(UnsafeArray_Get(arr, i), UnsafeArray_Get(arr, j), arr->element_size);
         memcpy(UnsafeArray_Get(arr, j), tmp, arr->element_size);
     }
+    free(tmp);
 }
 
 // Shuffles the array in place (Fisher-Yates). Call srand() beforehand for varied results.
 static void UnsafeArray_Shuffle(UnsafeArray *arr) {
     if (arr->count < 2) return;
-    uint8_t tmp[256];
+    uint8_t *tmp = (uint8_t *)malloc(arr->element_size);
     for (uint32_t i = arr->count - 1; i > 0; i--) {
         uint32_t j = (uint32_t)(rand() % (int)(i + 1));
         if (i != j) {
@@ -193,6 +195,7 @@ static void UnsafeArray_Shuffle(UnsafeArray *arr) {
             memcpy(UnsafeArray_Get(arr, j), tmp, arr->element_size);
         }
     }
+    free(tmp);
 }
 
 // Removes duplicate elements (memcmp). Order-preserving. Returns number removed.

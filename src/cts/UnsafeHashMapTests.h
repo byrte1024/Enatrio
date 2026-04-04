@@ -258,6 +258,63 @@ static void test_hashmap_collision_chain(void) {
     PASS();
 }
 
+static void test_hashmap_remove_reinsert_reuses_slot(void) {
+    TEST("hashmap: remove then reinsert reuses value slot");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 10, v2 = 20, v3 = 30;
+    UnsafeHashMap_Set(map, "a", 1, &v1);
+    UnsafeHashMap_Set(map, "b", 1, &v2);
+    uint32_t count_before = map->values->count;
+    ASSERT(count_before == 2);
+
+    ASSERT(UnsafeHashMap_Remove(map, "a", 1) == 0);
+    ASSERT(map->free_list->count == 1);
+
+    ASSERT(UnsafeHashMap_Set(map, "a", 1, &v3) == 0);
+    ASSERT(map->values->count == count_before);
+    ASSERT(map->free_list->count == 0);
+    ASSERT(UnsafeHashMap_GetDeref(map, "a", 1, int) == 30);
+    ASSERT(UnsafeHashMap_GetDeref(map, "b", 1, int) == 20);
+
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hashmap_remove_reinsert_many(void) {
+    TEST("hashmap: repeated remove/reinsert cycle keeps values array bounded");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 16);
+
+    char key[8];
+    for (int i = 0; i < 10; i++) {
+        int len = snprintf(key, sizeof(key), "k%d", i);
+        UnsafeHashMap_Set(map, key, (uint32_t)len, &i);
+    }
+    uint32_t baseline = map->values->count;
+    ASSERT(baseline == 10);
+
+    for (int i = 0; i < 10; i++) {
+        int len = snprintf(key, sizeof(key), "k%d", i);
+        UnsafeHashMap_Remove(map, key, (uint32_t)len);
+    }
+    ASSERT(map->free_list->count == 10);
+
+    for (int i = 0; i < 10; i++) {
+        int len = snprintf(key, sizeof(key), "k%d", i);
+        int val = i + 100;
+        UnsafeHashMap_Set(map, key, (uint32_t)len, &val);
+    }
+    ASSERT(map->values->count == baseline);
+    ASSERT(map->free_list->count == 0);
+
+    for (int i = 0; i < 10; i++) {
+        int len = snprintf(key, sizeof(key), "k%d", i);
+        ASSERT(UnsafeHashMap_GetDeref(map, key, (uint32_t)len, int) == i + 100);
+    }
+
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
 static void run_unsafe_hashmap_tests(void) {
     LOG_INFO("=== UnsafeHashMap Tests ===");
     test_hashmap_create_destroy();
@@ -279,4 +336,6 @@ static void run_unsafe_hashmap_tests(void) {
     test_hashmap_string_macros();
     test_hashmap_remove_then_reinsert();
     test_hashmap_collision_chain();
+    test_hashmap_remove_reinsert_reuses_slot();
+    test_hashmap_remove_reinsert_many();
 }

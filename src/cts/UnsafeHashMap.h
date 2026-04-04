@@ -20,6 +20,7 @@ typedef struct UnsafeHashMap {
     uint32_t bucket_count;
     uint32_t entry_count;
     UnsafeArray *values;
+    UnsafeArray *free_list; // int32_t indices of freed value slots
 } UnsafeHashMap;
 
 // FNV-1a hash
@@ -49,6 +50,7 @@ static UnsafeHashMap *UnsafeHashMap_Create(uint32_t element_size, uint32_t capac
     map->bucket_count = bucket_count;
     map->entry_count = 0;
     map->values = UnsafeArray_Create(element_size, capacity);
+    map->free_list = UnsafeArray_Create(sizeof(int32_t), 8);
     _UnsafeHashMap_InitBuckets(map->buckets, bucket_count);
     return map;
 }
@@ -61,6 +63,7 @@ static void UnsafeHashMap_Destroy(UnsafeHashMap *map) {
     }
     free(map->buckets);
     UnsafeArray_Destroy(map->values);
+    UnsafeArray_Destroy(map->free_list);
     free(map);
 }
 
@@ -141,8 +144,16 @@ static int UnsafeHashMap_Set(UnsafeHashMap *map, const void *key, uint32_t key_l
     e->key = malloc(key_len);
     memcpy(e->key, key, key_len);
     e->key_len = key_len;
-    e->value = (int32_t)map->values->count;
-    UnsafeArray_Add(map->values, value);
+
+    if (map->free_list->count > 0) {
+        int32_t slot = UnsafeArray_GetDeref(map->free_list, map->free_list->count - 1, int32_t);
+        map->free_list->count--;
+        UnsafeArray_Set(map->values, (uint32_t)slot, value);
+        e->value = slot;
+    } else {
+        e->value = (int32_t)map->values->count;
+        UnsafeArray_Add(map->values, value);
+    }
     map->entry_count++;
     return 0;
 }
@@ -164,7 +175,6 @@ static int UnsafeHashMap_Has(UnsafeHashMap *map, const void *key, uint32_t key_l
 }
 
 // Removes a key from the hash map. Returns 0 on success, -1 if not found.
-// Note: the value slot is not reclaimed, only the bucket is marked deleted.
 static int UnsafeHashMap_Remove(UnsafeHashMap *map, const void *key, uint32_t key_len) {
     uint32_t slot = _UnsafeHashMap_FindSlot(map, key, key_len);
     UnsafeHashEntry *e = &map->buckets[slot];
@@ -172,6 +182,8 @@ static int UnsafeHashMap_Remove(UnsafeHashMap *map, const void *key, uint32_t ke
     if (e->value < 0) return -1;
     if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return -1;
 
+    int32_t freed_slot = e->value;
+    UnsafeArray_Add(map->free_list, &freed_slot);
     free(e->key);
     e->key = NULL;
     e->key_len = 0;
@@ -295,8 +307,9 @@ typedef struct UnsafeVariedHashMap {
     UnsafeVariedHashEntry *buckets;
     uint32_t bucket_count;
     uint32_t entry_count;
-    UnsafeArray *entries; // UnsafeVariedHashEntryInfo index
-    UnsafeArray *data;    // raw byte buffer (element_size = 1)
+    UnsafeArray *entries;   // UnsafeVariedHashEntryInfo index
+    UnsafeArray *data;      // raw byte buffer (element_size = 1)
+    UnsafeArray *free_list; // int32_t indices of freed entry slots (data bytes not reclaimed)
 } UnsafeVariedHashMap;
 
 static void _UnsafeVariedHashMap_InitBuckets(UnsafeVariedHashEntry *buckets, uint32_t count) {
@@ -316,6 +329,7 @@ static UnsafeVariedHashMap *UnsafeVariedHashMap_Create(uint32_t capacity) {
     map->entry_count = 0;
     map->entries = UnsafeArray_Create(sizeof(UnsafeVariedHashEntryInfo), capacity);
     map->data = UnsafeArray_Create(1, capacity * 8);
+    map->free_list = UnsafeArray_Create(sizeof(int32_t), 8);
     _UnsafeVariedHashMap_InitBuckets(map->buckets, bucket_count);
     return map;
 }
@@ -329,6 +343,7 @@ static void UnsafeVariedHashMap_Destroy(UnsafeVariedHashMap *map) {
     free(map->buckets);
     UnsafeArray_Destroy(map->entries);
     UnsafeArray_Destroy(map->data);
+    UnsafeArray_Destroy(map->free_list);
     free(map);
 }
 
@@ -400,12 +415,20 @@ static int UnsafeVariedHashMap_Set(UnsafeVariedHashMap *map, const void *key, ui
     memcpy(e->key, key, key_len);
     e->key_len = key_len;
 
+    // Reuse freed entry slot if available, data bytes always appended
     UnsafeVariedHashEntryInfo info;
     info.offset = map->data->count;
     info.size = value_size;
 
-    e->value = (int32_t)map->entries->count;
-    UnsafeArray_Add(map->entries, &info);
+    if (map->free_list->count > 0) {
+        int32_t slot = UnsafeArray_GetDeref(map->free_list, map->free_list->count - 1, int32_t);
+        map->free_list->count--;
+        UnsafeArray_Set(map->entries, (uint32_t)slot, &info);
+        e->value = slot;
+    } else {
+        e->value = (int32_t)map->entries->count;
+        UnsafeArray_Add(map->entries, &info);
+    }
 
     const uint8_t *src = (const uint8_t *)value;
     for (uint32_t i = 0; i < value_size; i++) {
@@ -446,6 +469,7 @@ static int UnsafeVariedHashMap_Has(UnsafeVariedHashMap *map, const void *key, ui
 }
 
 // Removes a key. Returns 0 on success, -1 if not found.
+// Note: entry index slots are reclaimed, but data bytes in the buffer are not.
 static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
     uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
     UnsafeVariedHashEntry *e = &map->buckets[slot];
@@ -453,6 +477,8 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
     if (e->value < 0) return -1;
     if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return -1;
 
+    int32_t freed_slot = e->value;
+    UnsafeArray_Add(map->free_list, &freed_slot);
     free(e->key);
     e->key = NULL;
     e->key_len = 0;

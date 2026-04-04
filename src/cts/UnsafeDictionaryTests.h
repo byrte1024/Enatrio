@@ -240,6 +240,68 @@ static void test_dict_string_macros(void) {
     PASS();
 }
 
+static void test_dict_remove_reinsert_reuses_slot(void) {
+    TEST("dict: remove then reinsert reuses value slot");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v1 = 10, v2 = 20, v3 = 30;
+    UnsafeDictionary_Set(dict, "a", 1, &v1);
+    UnsafeDictionary_Set(dict, "b", 1, &v2);
+    uint32_t count_before = dict->values->count;
+    ASSERT(count_before == 2);
+
+    // Remove "a", its slot goes to free list
+    ASSERT(UnsafeDictionary_Remove(dict, "a", 1) == 0);
+    ASSERT(dict->free_list->count == 1);
+
+    // Reinsert "a" -- should reuse the freed slot, not grow values
+    ASSERT(UnsafeDictionary_Set(dict, "a", 1, &v3) == 0);
+    ASSERT(dict->values->count == count_before);
+    ASSERT(dict->free_list->count == 0);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "a", 1, int) == 30);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "b", 1, int) == 20);
+
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_remove_reinsert_many(void) {
+    TEST("dict: repeated remove/reinsert cycle keeps values array bounded");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+
+    // Insert 10 keys
+    char key[8];
+    for (int i = 0; i < 10; i++) {
+        int len = snprintf(key, sizeof(key), "k%d", i);
+        UnsafeDictionary_Set(dict, key, (uint32_t)len, &i);
+    }
+    uint32_t baseline = dict->values->count;
+    ASSERT(baseline == 10);
+
+    // Remove all, then reinsert all -- values->count should stay at 10
+    for (int i = 0; i < 10; i++) {
+        int len = snprintf(key, sizeof(key), "k%d", i);
+        UnsafeDictionary_Remove(dict, key, (uint32_t)len);
+    }
+    ASSERT(dict->free_list->count == 10);
+
+    for (int i = 0; i < 10; i++) {
+        int len = snprintf(key, sizeof(key), "k%d", i);
+        int val = i + 100;
+        UnsafeDictionary_Set(dict, key, (uint32_t)len, &val);
+    }
+    ASSERT(dict->values->count == baseline);
+    ASSERT(dict->free_list->count == 0);
+
+    // Verify new values
+    for (int i = 0; i < 10; i++) {
+        int len = snprintf(key, sizeof(key), "k%d", i);
+        ASSERT(UnsafeDictionary_GetDeref(dict, key, (uint32_t)len, int) == i + 100);
+    }
+
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
 static void run_unsafe_dictionary_tests(void) {
     LOG_INFO("=== UnsafeDictionary Tests ===");
     test_dict_create_destroy();
@@ -260,4 +322,6 @@ static void run_unsafe_dictionary_tests(void) {
     test_dict_logf_hex_keys();
     test_dict_log_callback();
     test_dict_string_macros();
+    test_dict_remove_reinsert_reuses_slot();
+    test_dict_remove_reinsert_many();
 }

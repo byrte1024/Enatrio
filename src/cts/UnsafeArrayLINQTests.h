@@ -450,6 +450,85 @@ static void test_macro_chained(void) {
     PASS();
 }
 
+// A struct larger than 256 bytes -- would have been silently truncated by the old
+// stack buffers in Select, Reverse, and Shuffle.
+typedef struct { int id; char padding[300]; } BigElem;
+
+static void _big_double_id(const void *src, void *dst) {
+    const BigElem *s = (const BigElem *)src;
+    BigElem *d = (BigElem *)dst;
+    d->id = s->id * 2;
+    memset(d->padding, 0, sizeof(d->padding));
+}
+
+static void test_linq_select_large_element(void) {
+    TEST("linq: Select with element > 256 bytes");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(BigElem), 4);
+    for (int i = 1; i <= 3; i++) {
+        BigElem e = {0};
+        e.id = i;
+        memset(e.padding, (char)i, sizeof(e.padding));
+        UnsafeArray_Add(arr, &e);
+    }
+    UnsafeArray *doubled = UnsafeArray_Select(arr, _big_double_id, sizeof(BigElem));
+    ASSERT(doubled->count == 3);
+    ASSERT(((BigElem *)UnsafeArray_Get(doubled, 0))->id == 2);
+    ASSERT(((BigElem *)UnsafeArray_Get(doubled, 1))->id == 4);
+    ASSERT(((BigElem *)UnsafeArray_Get(doubled, 2))->id == 6);
+    UnsafeArray_Destroy(doubled);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_linq_reverse_large_element(void) {
+    TEST("linq: Reverse with element > 256 bytes");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(BigElem), 4);
+    for (int i = 1; i <= 4; i++) {
+        BigElem e = {0};
+        e.id = i;
+        memset(e.padding, (char)i, sizeof(e.padding));
+        UnsafeArray_Add(arr, &e);
+    }
+    UnsafeArray_Reverse(arr);
+    ASSERT(((BigElem *)UnsafeArray_Get(arr, 0))->id == 4);
+    ASSERT(((BigElem *)UnsafeArray_Get(arr, 1))->id == 3);
+    ASSERT(((BigElem *)UnsafeArray_Get(arr, 2))->id == 2);
+    ASSERT(((BigElem *)UnsafeArray_Get(arr, 3))->id == 1);
+    // Verify padding survived intact
+    BigElem *first = (BigElem *)UnsafeArray_Get(arr, 0);
+    for (int j = 0; j < (int)sizeof(first->padding); j++) {
+        ASSERT(first->padding[j] == 4);
+    }
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_linq_shuffle_large_element(void) {
+    TEST("linq: Shuffle with element > 256 bytes preserves data");
+    srand(123);
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(BigElem), 8);
+    for (int i = 0; i < 6; i++) {
+        BigElem e = {0};
+        e.id = i + 1;
+        memset(e.padding, (char)(i + 1), sizeof(e.padding));
+        UnsafeArray_Add(arr, &e);
+    }
+    UnsafeArray_Shuffle(arr);
+    // Verify all elements still present with correct padding
+    int found[7] = {0};
+    for (uint32_t i = 0; i < arr->count; i++) {
+        BigElem *e = (BigElem *)UnsafeArray_Get(arr, i);
+        ASSERT(e->id >= 1 && e->id <= 6);
+        found[e->id] = 1;
+        for (int j = 0; j < (int)sizeof(e->padding); j++) {
+            ASSERT(e->padding[j] == (char)e->id);
+        }
+    }
+    for (int i = 1; i <= 6; i++) ASSERT(found[i] == 1);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
 static void run_unsafe_array_linq_tests(void) {
     LOG_INFO("=== UnsafeArrayLINQ Tests ===");
     test_linq_where();
@@ -477,6 +556,9 @@ static void run_unsafe_array_linq_tests(void) {
     test_linq_concat();
     test_linq_chained();
     test_linq_shuffle();
+    test_linq_select_large_element();
+    test_linq_reverse_large_element();
+    test_linq_shuffle_large_element();
 
     LOG_INFO("=== LINQ Macro Tests ===");
     test_macro_where();

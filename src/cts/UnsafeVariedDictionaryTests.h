@@ -163,6 +163,28 @@ static void test_varied_dict_many_entries(void) {
     PASS();
 }
 
+static void test_varied_dict_remove_reinsert_reuses_entry(void) {
+    TEST("varied dict: remove then reinsert reuses entry slot");
+    UnsafeVariedDictionary *dict = UnsafeVariedDictionary_Create(8);
+    int v1 = 10, v2 = 20, v3 = 30;
+    UnsafeVariedDictionary_SSet(dict, "a", &v1, sizeof(int));
+    UnsafeVariedDictionary_SSet(dict, "b", &v2, sizeof(int));
+    uint32_t entries_before = dict->entries->count;
+    ASSERT(entries_before == 2);
+
+    ASSERT(UnsafeVariedDictionary_SRemove(dict, "a") == 0);
+    ASSERT(dict->free_list->count == 1);
+
+    ASSERT(UnsafeVariedDictionary_SSet(dict, "a", &v3, sizeof(int)) == 0);
+    ASSERT(dict->entries->count == entries_before);
+    ASSERT(dict->free_list->count == 0);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "a", int) == 30);
+    ASSERT(UnsafeVariedDictionary_SGetDeref(dict, "b", int) == 20);
+
+    UnsafeVariedDictionary_Destroy(dict);
+    PASS();
+}
+
 static void run_unsafe_varied_dictionary_tests(void) {
     LOG_INFO("=== UnsafeVariedDictionary Tests ===");
     test_varied_dict_create_destroy();
@@ -176,4 +198,5 @@ static void run_unsafe_varied_dictionary_tests(void) {
     test_varied_dict_remove();
     test_varied_dict_struct_value();
     test_varied_dict_many_entries();
+    test_varied_dict_remove_reinsert_reuses_entry();
 }

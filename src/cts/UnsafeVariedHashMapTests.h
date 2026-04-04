@@ -182,6 +182,28 @@ static void test_varied_hm_rehash(void) {
     PASS();
 }
 
+static void test_varied_hm_remove_reinsert_reuses_entry(void) {
+    TEST("varied hashmap: remove then reinsert reuses entry slot");
+    UnsafeVariedHashMap *map = UnsafeVariedHashMap_Create(8);
+    int v1 = 10, v2 = 20, v3 = 30;
+    UnsafeVariedHashMap_SSet(map, "a", &v1, sizeof(int));
+    UnsafeVariedHashMap_SSet(map, "b", &v2, sizeof(int));
+    uint32_t entries_before = map->entries->count;
+    ASSERT(entries_before == 2);
+
+    ASSERT(UnsafeVariedHashMap_SRemove(map, "a") == 0);
+    ASSERT(map->free_list->count == 1);
+
+    ASSERT(UnsafeVariedHashMap_SSet(map, "a", &v3, sizeof(int)) == 0);
+    ASSERT(map->entries->count == entries_before);
+    ASSERT(map->free_list->count == 0);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "a", int) == 30);
+    ASSERT(UnsafeVariedHashMap_SGetDeref(map, "b", int) == 20);
+
+    UnsafeVariedHashMap_Destroy(map);
+    PASS();
+}
+
 static void run_unsafe_varied_hashmap_tests(void) {
     LOG_INFO("=== UnsafeVariedHashMap Tests ===");
     test_varied_hm_create_destroy();
@@ -196,4 +218,5 @@ static void run_unsafe_varied_hashmap_tests(void) {
     test_varied_hm_struct_value();
     test_varied_hm_many_entries();
     test_varied_hm_rehash();
+    test_varied_hm_remove_reinsert_reuses_entry();
 }
