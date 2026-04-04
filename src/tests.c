@@ -16,7 +16,7 @@
 #include "cts/SelfTests.h"
 
 int main(void) {
-    START_LOGGING("tests.log", LOG_INFO);
+    START_LOGGING("tests", LOG_INFO);
     LOG_BUILD_INFO();
 
     run_unsafe_array_tests();

@@ -104,11 +104,55 @@ static void _log_file_callback(int logLevel, const char *text, va_list args) {
     }
 }
 
-#define START_LOGGING(filepath, level) do { \
-    _log_file = fopen(filepath, "a"); \
+static const char *_app_local_path(void); // forward declaration
+
+static const char *_build_log_path(const char *prefix) {
+    static char logpath[512] = {0};
+    const char *base = _app_local_path();
+    if (!base || !base[0]) {
+        // Fallback to working directory
+        snprintf(logpath, sizeof(logpath), "%s.log", prefix);
+        return logpath;
+    }
+
+    // Ensure Logs directory exists (MakeDirectory creates full path)
+    char logsdir[512];
+#ifdef _WIN32
+    snprintf(logsdir, sizeof(logsdir), "%s\\Logs", base);
+#else
+    snprintf(logsdir, sizeof(logsdir), "%s/Logs", base);
+#endif
+    if (!DirectoryExists(logsdir)) MakeDirectory(logsdir);
+
+    // Build timestamped filename
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    if (t) {
+        snprintf(logpath, sizeof(logpath),
+#ifdef _WIN32
+            "%s\\Logs\\%s_%04d%02d%02d_%02d%02d%02d.log",
+#else
+            "%s/Logs/%s_%04d%02d%02d_%02d%02d%02d.log",
+#endif
+            base, prefix,
+            t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+            t->tm_hour, t->tm_min, t->tm_sec);
+    } else {
+#ifdef _WIN32
+        snprintf(logpath, sizeof(logpath), "%s\\Logs\\%s.log", base, prefix);
+#else
+        snprintf(logpath, sizeof(logpath), "%s/Logs/%s.log", base, prefix);
+#endif
+    }
+    return logpath;
+}
+
+#define START_LOGGING(prefix, level) do { \
+    const char *_lp = _build_log_path(prefix); \
+    _log_file = fopen(_lp, "w"); \
     _log_min_level = level; \
     if (_log_file) { \
-        fprintf(_log_file, "\n--- Session Start ---\n\n"); \
+        fprintf(_log_file, "--- %s ---\n\n", _lp); \
         fflush(_log_file); \
         SetTraceLogCallback(_log_file_callback); \
     } \

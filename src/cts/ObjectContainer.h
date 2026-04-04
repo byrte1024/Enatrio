@@ -3,6 +3,33 @@
 // ObjectContainer lifecycle functions.
 // Included by Self.h -- do not include directly.
 
+// ============================================================
+// Global object registry
+// ============================================================
+
+inline UnsafeArray *_object_registry = NULL;
+
+static void _ObjectRegistry_Init(void) {
+    if (_object_registry == NULL) {
+        _object_registry = UnsafeArray_Create(sizeof(TempObjectReference), 64);
+    }
+}
+
+static void _ObjectRegistry_Register(TempObjectReference obj) {
+    _ObjectRegistry_Init();
+    UnsafeArray_Add(_object_registry, &obj);
+}
+
+static void _ObjectRegistry_Unregister(TempObjectReference obj) {
+    if (_object_registry == NULL) return;
+    for (uint32_t i = 0; i < _object_registry->count; i++) {
+        if (*(TempObjectReference*)UnsafeArray_Get(_object_registry, i) == obj) {
+            UnsafeArray_RemoveSwap(_object_registry, i);
+            return;
+        }
+    }
+}
+
 static inline MessagePayload PrepareSelfPayload(TempObjectReference reference, MessageID mid) {
     MessagePayload payload = {0};
 
@@ -37,6 +64,7 @@ static TempObjectReference ObjectContainer_CreateGhost(){
     container->cid = CID_Untyped;
     container->internal_refs = 0;
     container->external_refs = 0;
+    _ObjectRegistry_Register(container);
     return container;
 }
 
@@ -59,6 +87,7 @@ static void ObjectContainer_DestroyGhost(TempObjectReference container){
         return;
     }
 
+    _ObjectRegistry_Unregister(container);
     free(container);
 }
 

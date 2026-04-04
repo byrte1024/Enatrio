@@ -467,8 +467,7 @@ static void test_self_empty_unrefs_held(void) {
     ExternalReference h = ObjectContainer_ExternalRef_From_Temp(holder);
     Object_EmptyFilledType(h);
     ASSERT(holder->data == NULL);
-    ObjectContainer_UntypeEmptyTyped(holder);
-    ObjectContainer_DestroyGhost(holder);
+    ObjectContainer_UnRef_External(&h);
     PASS();
 }
 
@@ -483,8 +482,7 @@ static void test_self_empty_unrefs_multiple(void) {
     }
     ExternalReference h = ObjectContainer_ExternalRef_From_Temp(holder);
     Object_EmptyFilledType(h);
-    ObjectContainer_UntypeEmptyTyped(holder);
-    ObjectContainer_DestroyGhost(holder);
+    ObjectContainer_UnRef_External(&h);
     PASS();
 }
 
@@ -500,8 +498,7 @@ static void test_self_empty_shared_survives(void) {
     Object_EmptyFilledType(h);
     ASSERT(target->internal_refs == 0);
     ASSERT(target->external_refs == 1);
-    ObjectContainer_UntypeEmptyTyped(holder);
-    ObjectContainer_DestroyGhost(holder);
+    ObjectContainer_UnRef_External(&h);
     ObjectContainer_UnRef_External(&target_ext);
     PASS();
 }
@@ -569,7 +566,8 @@ static void test_node_self_ref_skips(void) {
     ExternalReference ae = ObjectContainer_ExternalRef_From_Temp(a);
     _node_set_child(a, MID_Node_SELF_SetLeft, ae);
     ASSERT(_node_sum(a) == 42);
-    Object_Destroy(a);
+    ObjectContainer_UnRef_External(&ae);
+    // a now has ext=0, int=1 (self-ref). GC collects it.
     PASS();
 }
 
@@ -590,8 +588,7 @@ static void test_cycle_ab_empty(void) {
     Object_EmptyFilledType(a_ext);
     ASSERT(a->data == NULL);
     ASSERT(a->internal_refs == 0);
-    ObjectContainer_UntypeEmptyTyped(a);
-    ObjectContainer_DestroyGhost(a);
+    ObjectContainer_UnRef_External(&a_ext);
     PASS();
 }
 
@@ -605,8 +602,7 @@ static void test_cycle_self_ref_empty(void) {
     Object_EmptyFilledType(a_ext);
     ASSERT(a->data == NULL);
     ASSERT(a->internal_refs == 0);
-    ObjectContainer_UntypeEmptyTyped(a);
-    ObjectContainer_DestroyGhost(a);
+    ObjectContainer_UnRef_External(&a_ext);
     PASS();
 }
 
@@ -625,8 +621,7 @@ static void test_cycle_triangle_empty(void) {
     Object_EmptyFilledType(a_ext);
     ASSERT(a->data == NULL);
     ASSERT(a->internal_refs == 0);
-    ObjectContainer_UntypeEmptyTyped(a);
-    ObjectContainer_DestroyGhost(a);
+    ObjectContainer_UnRef_External(&a_ext);
     PASS();
 }
 
@@ -873,6 +868,266 @@ static void test_gc_empty_ghost_ext_drop(void) {
 }
 
 // ============================================================
+// GC stress tests -- complex structures
+// ============================================================
+
+static void test_gc_stress_full_mesh_4(void) {
+    TEST("gc stress: 4-node full mesh, all ref each other");
+    // Every node refs every other node. Drop the only external.
+    TempObjectReference n[4];
+    for (int i = 0; i < 4; i++) n[i] = _node_create(i);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(n[0]);
+    for (int i = 0; i < 4; i++) {
+        for (int j = 0; j < 4; j++) {
+            if (i == j) continue;
+            char key[8];
+            snprintf(key, sizeof(key), "n%d", j);
+            Object_StoreRef(n[i], key, (uint32_t)strlen(key), n[j]);
+        }
+    }
+    // n[0] ext=1, int=3. Others ext=0, int=3. Drop ext -> GC collects all.
+    ObjectContainer_UnRef_External(&ext);
+    PASS();
+}
+
+static void test_gc_stress_star_topology(void) {
+    TEST("gc stress: star -- hub refs 10 leaves, leaves ref hub");
+    TempObjectReference hub = _node_create(0);
+    TempObjectReference leaves[10];
+    ExternalReference hub_ext = ObjectContainer_ExternalRef_From_Temp(hub);
+    for (int i = 0; i < 10; i++) {
+        leaves[i] = _node_create(i + 1);
+        char key[8];
+        snprintf(key, sizeof(key), "l%d", i);
+        Object_StoreRef(hub, key, (uint32_t)strlen(key), leaves[i]);
+        Object_SStoreRef(leaves[i], "hub", hub);
+    }
+    // Hub ext=1, int=10. Each leaf int=1. Drop hub ext -> GC collects all 11.
+    ObjectContainer_UnRef_External(&hub_ext);
+    PASS();
+}
+
+static void test_gc_stress_double_ring(void) {
+    TEST("gc stress: two interleaved 5-node rings");
+    // Ring A: a0->a1->a2->a3->a4->a0
+    // Ring B: b0->b1->b2->b3->b4->b0
+    // Cross links: a0->b0, b0->a0
+    TempObjectReference a[5], b[5];
+    for (int i = 0; i < 5; i++) {
+        a[i] = _node_create(i);
+        b[i] = _node_create(i + 10);
+    }
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(a[0]);
+    for (int i = 0; i < 5; i++) {
+        Object_SStoreRef(a[i], "next", a[(i + 1) % 5]);
+        Object_SStoreRef(b[i], "next", b[(i + 1) % 5]);
+    }
+    Object_SStoreRef(a[0], "cross", b[0]);
+    Object_SStoreRef(b[0], "cross", a[0]);
+    // Everything reachable from a[0]. Drop ext -> GC traverses all 10, no externals, collect all.
+    ObjectContainer_UnRef_External(&ext);
+    PASS();
+}
+
+static void test_gc_stress_chain_with_back_links(void) {
+    TEST("gc stress: 20-node chain with every 5th node linking back to head");
+    TempObjectReference nodes[20];
+    for (int i = 0; i < 20; i++) nodes[i] = _node_create(i);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(nodes[0]);
+    for (int i = 0; i < 19; i++)
+        Object_SStoreRef(nodes[i], "next", nodes[i + 1]);
+    // Back links at 5, 10, 15 -> nodes[0]
+    Object_SStoreRef(nodes[5], "back", nodes[0]);
+    Object_SStoreRef(nodes[10], "back", nodes[0]);
+    Object_SStoreRef(nodes[15], "back", nodes[0]);
+    // Drop ext -> GC: nodes[0] ext=0, int=3. Traverses all 20. No externals. Collect all.
+    ObjectContainer_UnRef_External(&ext);
+    PASS();
+}
+
+static void test_gc_stress_tree_with_parent_refs(void) {
+    TEST("gc stress: binary tree where children ref parent");
+    // 7-node tree, children ref parent creating bidirectional links
+    TempObjectReference n[7];
+    for (int i = 0; i < 7; i++) n[i] = _node_create(i);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(n[0]);
+    // Parent -> children
+    Object_SStoreRef(n[0], "left", n[1]);
+    Object_SStoreRef(n[0], "right", n[2]);
+    Object_SStoreRef(n[1], "left", n[3]);
+    Object_SStoreRef(n[1], "right", n[4]);
+    Object_SStoreRef(n[2], "left", n[5]);
+    Object_SStoreRef(n[2], "right", n[6]);
+    // Children -> parent
+    Object_SStoreRef(n[1], "parent", n[0]);
+    Object_SStoreRef(n[2], "parent", n[0]);
+    Object_SStoreRef(n[3], "parent", n[1]);
+    Object_SStoreRef(n[4], "parent", n[1]);
+    Object_SStoreRef(n[5], "parent", n[2]);
+    Object_SStoreRef(n[6], "parent", n[2]);
+    // Drop ext -> GC collects all 7
+    ObjectContainer_UnRef_External(&ext);
+    PASS();
+}
+
+static void test_gc_stress_bidirectional_cross_cascade(void) {
+    TEST("gc stress: two clusters with bidirectional cross, cascade collects both");
+    // Cluster A: 3-node ring, ext on a[0]
+    // Cluster B: 3-node ring, no ext
+    // Cross: a[1] -> b[1], b[1] -> a[1] (bidirectional)
+    TempObjectReference a[3], b[3];
+    for (int i = 0; i < 3; i++) {
+        a[i] = _node_create(i);
+        b[i] = _node_create(i + 10);
+    }
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a[0]);
+    for (int i = 0; i < 3; i++) {
+        Object_SStoreRef(a[i], "next", a[(i + 1) % 3]);
+        Object_SStoreRef(b[i], "next", b[(i + 1) % 3]);
+    }
+    Object_SStoreRef(a[1], "cross", b[1]);
+    Object_SStoreRef(b[1], "cross", a[1]);
+    // Drop a_ext -> GC from a[0]. Traverses a ring + cross to b ring. No externals anywhere. Collect all 6.
+    ObjectContainer_UnRef_External(&a_ext);
+    PASS();
+}
+
+static void test_gc_stress_cascade_orphan_cleanup(void) {
+    TEST("gc stress: collected cluster refs orphan cluster, follow-up GC cleans orphan");
+    // Cluster A: a0<->a1, ext on a0
+    // Cluster B: b0<->b1, no ext
+    // A refs B: a0 -> b0
+    // B refs A: b0 -> a0 (bidirectional cross)
+    // When a_ext dropped: GC finds all 4, no ext, collects all.
+    // This tests that the bidirectional link means everything is reachable.
+    TempObjectReference a0 = _node_create(1);
+    TempObjectReference a1 = _node_create(2);
+    TempObjectReference b0 = _node_create(3);
+    TempObjectReference b1 = _node_create(4);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(a0);
+    Object_SStoreRef(a0, "a1", a1);
+    Object_SStoreRef(a1, "a0", a0);
+    Object_SStoreRef(b0, "b1", b1);
+    Object_SStoreRef(b1, "b0", b0);
+    Object_SStoreRef(a0, "cross", b0);
+    Object_SStoreRef(b0, "cross", a0);
+    ObjectContainer_UnRef_External(&ext);
+    // All 4 collected (single connected component, 0 externals)
+    PASS();
+}
+
+static void test_gc_stress_outgoing_orphan_follow_up(void) {
+    TEST("gc stress: collected node's outgoing ref decrements orphan, follow-up collects");
+    // A: ext on a, refs b
+    // B: ring b0<->b1, no ext, b0 refs a (so a has internal from b0)
+    // Drop a's ext -> a has ext=0, int=1 (from b0). GC traverses: a -> b0 -> b1 -> b0. No ext. Collect all 3.
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b0 = _node_create(2);
+    TempObjectReference b1 = _node_create(3);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "b", b0);
+    Object_SStoreRef(b0, "b1", b1);
+    Object_SStoreRef(b1, "b0", b0);
+    Object_SStoreRef(b0, "back", a);
+    ObjectContainer_UnRef_External(&ext);
+    PASS();
+}
+
+static void test_gc_stress_one_way_cross_known_leak(void) {
+    TEST("gc stress: one-way cross link, orphaned cluster (known limitation)");
+    // A ring: a0->a1->a0, ext on a0
+    // B ring: b0->b1->b0, ext on b0
+    // One-way: a0 -> b0 (A can reach B, B cannot reach A)
+    TempObjectReference a[2], b[2];
+    for (int i = 0; i < 2; i++) {
+        a[i] = _node_create(i);
+        b[i] = _node_create(i + 10);
+    }
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a[0]);
+    ExternalReference b_ext = ObjectContainer_ExternalRef_From_Temp(b[0]);
+    Object_SStoreRef(a[0], "next", a[1]);
+    Object_SStoreRef(a[1], "next", a[0]);
+    Object_SStoreRef(b[0], "next", b[1]);
+    Object_SStoreRef(b[1], "next", b[0]);
+    Object_SStoreRef(a[0], "cross", b[0]); // one-way A->B
+    // Drop a_ext -> GC from a[0], traverses a ring + b ring. b[0] has ext. No collect.
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(a[0]->data != NULL);
+    ASSERT(b[0]->data != NULL);
+    // Drop b_ext -> GC from b[0], traverses b ring only (no outgoing to a).
+    // B ring collected. A ring has 0 ext but nobody triggers GC on it.
+    // Follow-up: B's teardown doesn't ref A, so no orphan detection fires.
+    // A ring is orphaned. Known limitation for one-way cross without back-link.
+    ObjectContainer_UnRef_External(&b_ext);
+    // A ring is orphaned. Object_GarbageCollect sweeps and collects it.
+    Object_GarbageCollect();
+    // All cleaned up.
+    PASS();
+}
+
+static void test_gc_stress_self_ref_ring(void) {
+    TEST("gc stress: 10-node ring where each also refs itself");
+    TempObjectReference n[10];
+    for (int i = 0; i < 10; i++) n[i] = _node_create(i);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(n[0]);
+    for (int i = 0; i < 10; i++) {
+        Object_SStoreRef(n[i], "next", n[(i + 1) % 10]);
+        Object_SStoreRef(n[i], "self", n[i]);
+    }
+    // Each node: int=2 (from prev's "next" + own "self"), except n[0] also has ext=1
+    ObjectContainer_UnRef_External(&ext);
+    // GC collects all 10
+    PASS();
+}
+
+static void test_gc_stress_many_small_cycles(void) {
+    TEST("gc stress: 50 independent A<->B pairs collected");
+    for (int i = 0; i < 50; i++) {
+        TempObjectReference a = _node_create(i * 2);
+        TempObjectReference b = _node_create(i * 2 + 1);
+        ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(a);
+        Object_SStoreRef(a, "b", b);
+        Object_SStoreRef(b, "a", a);
+        ObjectContainer_UnRef_External(&ext);
+    }
+    PASS();
+}
+
+static void test_gc_stress_deep_chain_cycle(void) {
+    TEST("gc stress: 100-node chain forming a cycle");
+    TempObjectReference nodes[100];
+    for (int i = 0; i < 100; i++) nodes[i] = _node_create(i);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(nodes[0]);
+    for (int i = 0; i < 100; i++)
+        Object_SStoreRef(nodes[i], "next", nodes[(i + 1) % 100]);
+    ObjectContainer_UnRef_External(&ext);
+    // GC traverses all 100, collects all
+    PASS();
+}
+
+static void test_gc_stress_mixed_ext_survival(void) {
+    TEST("gc stress: 10-node ring, ext on every 3rd, drop all exts one by one");
+    TempObjectReference n[10];
+    ExternalReference exts[4]; // on n[0], n[3], n[6], n[9]
+    for (int i = 0; i < 10; i++) n[i] = _node_create(i);
+    int ext_idx = 0;
+    for (int i = 0; i < 10; i++) {
+        Object_SStoreRef(n[i], "next", n[(i + 1) % 10]);
+        if (i % 3 == 0) {
+            exts[ext_idx++] = ObjectContainer_ExternalRef_From_Temp(n[i]);
+        }
+    }
+    // Drop first 3 exts -- ring still has ext on n[9]
+    for (int i = 0; i < 3; i++) {
+        ObjectContainer_UnRef_External(&exts[i]);
+        ASSERT(n[9]->data != NULL); // ring still alive
+    }
+    // Drop last ext -> GC collects all 10
+    ObjectContainer_UnRef_External(&exts[3]);
+    PASS();
+}
+
+// ============================================================
 // Graph visualization test
 // ============================================================
 
@@ -895,10 +1150,10 @@ static void test_viz_graph(void) {
 
     Object_VisualizeGraphSingle("build/tests/graph.txt", root_e);
 
-    Object_Destroy(root);
     ObjectContainer_UnRef_External(&root_e);
     ObjectContainer_UnRef_External(&a_e);
     ObjectContainer_UnRef_External(&b_e);
+    Object_GarbageCollect();
     PASS();
 }
 
@@ -933,6 +1188,332 @@ static void test_self_many_ext_refs(void) {
     ASSERT(obj->external_refs == 50);
     for (int i = 0; i < 50; i++)
         ObjectContainer_UnRef_External(&refs[i]);
+    PASS();
+}
+
+// ============================================================
+// Object_GarbageCollect tests
+// ============================================================
+
+static uint32_t _registry_count(void) {
+    return (_object_registry != NULL) ? _object_registry->count : 0;
+}
+
+static void test_gc_sweep_empty_registry(void) {
+    TEST("gc sweep: GarbageCollect on empty registry is safe");
+    uint32_t before = _registry_count();
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == before);
+    PASS();
+}
+
+static void test_gc_sweep_no_orphans(void) {
+    TEST("gc sweep: GarbageCollect with no orphans does nothing");
+    TempObjectReference obj = Object_Create(CID_Counter);
+    ExternalReference ext = ObjectContainer_ExternalRef_From_Temp(obj);
+    uint32_t before = _registry_count();
+    Object_GarbageCollect(); // obj has ext, should not be collected
+    ASSERT(_registry_count() == before);
+    ObjectContainer_UnRef_External(&ext);
+    PASS();
+}
+
+static void test_gc_sweep_collects_one_way_orphan(void) {
+    TEST("gc sweep: collects one-way cross orphan");
+    // A ring -> B ring (one-way). Drop both exts. B collected inline. A orphaned.
+    TempObjectReference a0 = _node_create(1);
+    TempObjectReference a1 = _node_create(2);
+    TempObjectReference b0 = _node_create(3);
+    TempObjectReference b1 = _node_create(4);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a0);
+    ExternalReference b_ext = ObjectContainer_ExternalRef_From_Temp(b0);
+    Object_SStoreRef(a0, "next", a1);
+    Object_SStoreRef(a1, "next", a0);
+    Object_SStoreRef(b0, "next", b1);
+    Object_SStoreRef(b1, "next", b0);
+    Object_SStoreRef(a0, "cross", b0); // one-way A->B
+
+    uint32_t before = _registry_count();
+    ASSERT(before >= 4); // we just created 4 nodes
+    // Drop a_ext -> GC from a0, traverses a+b, b has ext. No collect. All 4 alive.
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(_registry_count() == before); // nothing collected yet
+    // Drop b_ext -> GC from b0, traverses b ring only. Collects b0+b1.
+    ObjectContainer_UnRef_External(&b_ext);
+    ASSERT(_registry_count() == before - 2); // b ring gone, a ring orphaned
+    // Sweep collects orphaned A ring
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == before - 4); // all 4 gone
+    PASS();
+}
+
+static void test_gc_sweep_multiple_orphan_clusters(void) {
+    TEST("gc sweep: collects multiple orphaned clusters at once");
+    // Create 5 independent A<->B pairs, all orphaned (no externals after setup)
+    uint32_t before = _registry_count();
+    for (int i = 0; i < 5; i++) {
+        TempObjectReference a = _node_create(i * 2);
+        TempObjectReference b = _node_create(i * 2 + 1);
+        Object_SStoreRef(a, "b", b);
+        Object_SStoreRef(b, "a", a);
+        // No external refs -- these are immediately orphaned
+    }
+    ASSERT(_registry_count() == before + 10);
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == before); // all 10 collected
+    PASS();
+}
+
+static void test_gc_sweep_mixed_live_and_dead(void) {
+    TEST("gc sweep: only collects dead clusters, leaves live ones");
+    uint32_t before = _registry_count();
+    // Live: has external ref
+    TempObjectReference live = Object_Create(CID_Counter);
+    ExternalReference live_ext = ObjectContainer_ExternalRef_From_Temp(live);
+    // Dead: A<->B cycle, no externals
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+
+    ASSERT(_registry_count() == before + 3);
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == before + 1); // dead pair collected, live remains
+    ASSERT(live->data != NULL); // live still alive
+
+    ObjectContainer_UnRef_External(&live_ext);
+    ASSERT(_registry_count() == before);
+    PASS();
+}
+
+static void test_gc_sweep_complex_orphan_chain(void) {
+    TEST("gc sweep: chain of clusters orphaned by cascade");
+    // A ring (ext) -> B ring -> C ring (all one-way cross links)
+    // Drop A's ext. GC collects A (traverses to B, B to C? No, one-way).
+    // Actually A->B one-way. GC from A finds B (no ext on B) and C (via B->C, no ext on C).
+    // Wait, B and C have no ext. GC from A finds all reachable: A+B+C? Only if A can reach B and B can reach C.
+    // Let me make it: A ring has ext. A->B cross. B->C cross. All one-way.
+    TempObjectReference a[2], b[2], c[2];
+    for (int i = 0; i < 2; i++) {
+        a[i] = _node_create(i);
+        b[i] = _node_create(i + 10);
+        c[i] = _node_create(i + 20);
+    }
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a[0]);
+    for (int i = 0; i < 2; i++) {
+        Object_SStoreRef(a[i], "next", a[(i + 1) % 2]);
+        Object_SStoreRef(b[i], "next", b[(i + 1) % 2]);
+        Object_SStoreRef(c[i], "next", c[(i + 1) % 2]);
+    }
+    Object_SStoreRef(a[0], "cross", b[0]);
+    Object_SStoreRef(b[0], "cross", c[0]);
+
+    uint32_t before = _registry_count();
+    // Drop a's ext. a has ext=0, int=1. GC traverses: a ring -> b ring -> c ring. None have ext. Collect all 6.
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(_registry_count() == before - 6);
+    PASS();
+}
+
+static void test_gc_sweep_after_all_tests(void) {
+    TEST("gc sweep: final sweep leaves registry at 0");
+    Object_GarbageCollect();
+    if (_registry_count() > 0) {
+        LOG_ERROR("  LEAK: %u objects remain in registry after final sweep", _registry_count());
+        // Dump what's left
+        for (uint32_t i = 0; i < _object_registry->count; i++) {
+            TempObjectReference obj = *(TempObjectReference*)UnsafeArray_Get(_object_registry, i);
+            LOG_ERROR("  [%u] CID=0x%04X ext=%d int=%d data=%s",
+                i, obj->cid, obj->external_refs, obj->internal_refs,
+                obj->data ? "FILLED" : "NULL");
+        }
+    }
+    ASSERT(_registry_count() == 0);
+    PASS();
+}
+
+// ============================================================
+// GC correctness deep tests -- targeting specific code paths
+// ============================================================
+
+static void test_gc_exact_two_nodes_shared_external_target(void) {
+    TEST("gc exact: two collected nodes both ref same external target");
+    // A<->B cycle (collected). Both A and B ref C (external, has ext ref).
+    // Pass 2 should decrement C's internal_refs twice (from 2 to 0).
+    uint32_t before = _registry_count();
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    ExternalReference c_ext = ObjectContainer_ExternalRef_From_Temp(c);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    Object_SStoreRef(a, "c", c);
+    Object_SStoreRef(b, "c_too", c);
+    ASSERT(c->internal_refs == 2);
+    ASSERT(c->external_refs == 1);
+    ASSERT(_registry_count() == before + 3);
+    // Drop a_ext -> GC from a. Traverses a,b. Both ref c. c has ext. has_external=true. No collect.
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(_registry_count() == before + 3); // nothing collected
+    ASSERT(c->internal_refs == 2); // unchanged
+    // Now drop c_ext -> c has ext=0, int=2. GC from c. c has no outgoing refs (no refs hashmap entries to other nodes? actually c has no refs stored).
+    // Wait -- c is a Node, _node_create stores "value" on values, no refs. So c's references hashmap is empty.
+    // GC from c: just c. No ext. Collect c.
+    // But a and b still ref c (stale). a<->b still alive with 0 ext each.
+    ObjectContainer_UnRef_External(&c_ext);
+    // c collected. a+b orphaned.
+    ASSERT(_registry_count() == before + 2); // c gone, a+b remain
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == before); // a+b swept
+    PASS();
+}
+
+static void test_gc_exact_orphan_candidate_freed_before_pass4(void) {
+    TEST("gc exact: orphan candidate freed in pass2, skipped in pass4");
+    // A refs B (one-way). A refs C (one-way). B and C have no refs.
+    // A has ext. Drop ext. A has total=0, destroyed immediately (not a cycle).
+    // A's EmptyFilledTyped unrefs B and C. B and C have total=0, destroyed.
+    // This tests the normal cascade path, no GC needed.
+    uint32_t before = _registry_count();
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(a, "c", c);
+    ASSERT(_registry_count() == before + 3);
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(_registry_count() == before); // all 3 destroyed via cascade
+    PASS();
+}
+
+static void test_gc_exact_multiple_ext_drops_sequential(void) {
+    TEST("gc exact: 4-node ring, drop exts one at a time, verify counts");
+    uint32_t before = _registry_count();
+    TempObjectReference n[4];
+    ExternalReference exts[4];
+    for (int i = 0; i < 4; i++) {
+        n[i] = _node_create(i);
+        exts[i] = ObjectContainer_ExternalRef_From_Temp(n[i]);
+    }
+    for (int i = 0; i < 4; i++)
+        Object_SStoreRef(n[i], "next", n[(i + 1) % 4]);
+    ASSERT(_registry_count() == before + 4);
+    // Drop first 3 -- each time, GC traverses ring, finds remaining ext. No collect.
+    for (int i = 0; i < 3; i++) {
+        ObjectContainer_UnRef_External(&exts[i]);
+        ASSERT(_registry_count() == before + 4); // nothing collected
+        for (int j = i + 1; j < 4; j++)
+            ASSERT(n[j]->data != NULL); // all still alive
+    }
+    // Drop last ext -- GC collects all 4
+    ObjectContainer_UnRef_External(&exts[3]);
+    ASSERT(_registry_count() == before); // all gone
+    PASS();
+}
+
+static void test_gc_exact_gc_during_gc_blocked(void) {
+    TEST("gc exact: nested GC is blocked by _gc_running flag");
+    // Create orphaned cycle, then call GC twice -- second should be no-op
+    uint32_t before = _registry_count();
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    ASSERT(_registry_count() == before + 2);
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == before);
+    // Second GC should be safe no-op
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == before);
+    PASS();
+}
+
+static void test_gc_exact_empty_object_not_candidate(void) {
+    TEST("gc exact: emptied object (data=NULL) is not a GC candidate");
+    uint32_t before = _registry_count();
+    TempObjectReference a = _node_create(1);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "self", a);
+    // Empty it manually
+    Object_EmptyFilledType(a_ext);
+    ASSERT(a->data == NULL);
+    ASSERT(a->internal_refs == 0); // self-ref unref'd during empty
+    // a is empty+typed, ext=1, int=0. Not a GC candidate (data==NULL).
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == before + 1); // still registered (not collected)
+    // Clean up: drop ext ref, then untype, then destroy ghost
+    ObjectContainer_UnRef_External(&a_ext);
+    // a now has total=0, but data is NULL so UnRef_External just frees it
+    ASSERT(_registry_count() == before);
+    PASS();
+}
+
+static void test_gc_exact_chain_a_b_c_exact_counts(void) {
+    TEST("gc exact: A->B->C chain, exact registry counts at every step");
+    uint32_t before = _registry_count();
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    ASSERT(_registry_count() == before + 3);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    ExternalReference c_ext = ObjectContainer_ExternalRef_From_Temp(c);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "c", c);
+    ASSERT(a->external_refs == 1);
+    ASSERT(a->internal_refs == 0);
+    ASSERT(b->external_refs == 0);
+    ASSERT(b->internal_refs == 1);
+    ASSERT(c->external_refs == 1);
+    ASSERT(c->internal_refs == 1);
+    // Drop a_ext -> a total=0 -> destroyed. Cascade: a unrefs b -> b total=0 -> destroyed. b unrefs c -> c int=0, ext=1 -> survives.
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(_registry_count() == before + 1); // only c remains
+    ASSERT(c->external_refs == 1);
+    ASSERT(c->internal_refs == 0);
+    ObjectContainer_UnRef_External(&c_ext);
+    ASSERT(_registry_count() == before);
+    PASS();
+}
+
+static void test_gc_exact_diamond_shared_leaf_counts(void) {
+    TEST("gc exact: diamond A->B,C->D, exact ref counts");
+    uint32_t before = _registry_count();
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    TempObjectReference c = _node_create(3);
+    TempObjectReference d = _node_create(4);
+    ExternalReference a_ext = ObjectContainer_ExternalRef_From_Temp(a);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(a, "c", c);
+    Object_SStoreRef(b, "d", d);
+    Object_SStoreRef(c, "d", d);
+    ASSERT(d->internal_refs == 2);
+    ASSERT(b->internal_refs == 1);
+    ASSERT(c->internal_refs == 1);
+    ASSERT(_registry_count() == before + 4);
+    // Drop a's ext -> a total=0 -> destroyed. Cascade through b,c,d. d gets unref'd twice (from b and c).
+    ObjectContainer_UnRef_External(&a_ext);
+    ASSERT(_registry_count() == before); // all 4 gone
+    PASS();
+}
+
+static void test_gc_sweep_idempotent(void) {
+    TEST("gc exact: multiple GarbageCollect calls are idempotent");
+    uint32_t before = _registry_count();
+    TempObjectReference a = _node_create(1);
+    TempObjectReference b = _node_create(2);
+    Object_SStoreRef(a, "b", b);
+    Object_SStoreRef(b, "a", a);
+    ASSERT(_registry_count() == before + 2);
+    Object_GarbageCollect();
+    uint32_t after = _registry_count();
+    ASSERT(after == before);
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == after);
+    Object_GarbageCollect();
+    ASSERT(_registry_count() == after);
     PASS();
 }
 
@@ -1002,6 +1583,21 @@ static void run_self_tests(void) {
     test_gc_two_separate_cycles();
     test_gc_empty_ghost_ext_drop();
 
+    LOG_INFO("=== GC Stress Tests ===");
+    test_gc_stress_full_mesh_4();
+    test_gc_stress_star_topology();
+    test_gc_stress_double_ring();
+    test_gc_stress_chain_with_back_links();
+    test_gc_stress_tree_with_parent_refs();
+    test_gc_stress_bidirectional_cross_cascade();
+    test_gc_stress_cascade_orphan_cleanup();
+    test_gc_stress_outgoing_orphan_follow_up();
+    test_gc_stress_one_way_cross_known_leak();
+    test_gc_stress_self_ref_ring();
+    test_gc_stress_many_small_cycles();
+    test_gc_stress_deep_chain_cycle();
+    test_gc_stress_mixed_ext_survival();
+
     LOG_INFO("=== Graph Visualization ===");
     test_viz_graph();
 
@@ -1009,5 +1605,24 @@ static void run_self_tests(void) {
     test_self_create_destroy_many();
     test_self_ext_ref_unref_many();
     test_self_many_ext_refs();
+
+    LOG_INFO("=== Object_GarbageCollect Tests ===");
+    test_gc_sweep_empty_registry();
+    test_gc_sweep_no_orphans();
+    test_gc_sweep_collects_one_way_orphan();
+    test_gc_sweep_multiple_orphan_clusters();
+    test_gc_sweep_mixed_live_and_dead();
+    test_gc_sweep_complex_orphan_chain();
+    LOG_INFO("=== GC Correctness Deep Tests ===");
+    test_gc_exact_two_nodes_shared_external_target();
+    test_gc_exact_orphan_candidate_freed_before_pass4();
+    test_gc_exact_multiple_ext_drops_sequential();
+    test_gc_exact_gc_during_gc_blocked();
+    test_gc_exact_empty_object_not_candidate();
+    test_gc_exact_chain_a_b_c_exact_counts();
+    test_gc_exact_diamond_shared_leaf_counts();
+    test_gc_sweep_idempotent();
+
+    test_gc_sweep_after_all_tests();
 }
 

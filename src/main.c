@@ -12,7 +12,7 @@
 #include "classes/exploder.h"
 
 int main() {
-  START_LOGGING("game.log", LOG_INFO);
+  START_LOGGING("game", LOG_INFO);
   LOG_BUILD_INFO();
 
   BeginClassRegistrations();
