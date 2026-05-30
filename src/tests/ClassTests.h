@@ -1,7 +1,7 @@
 #pragma once
 
 #include "../system/tests.h"
-#include "../class/Class.h"
+#include "../system/class/Class.h"
 
 // -- Test class: Calculator --
 

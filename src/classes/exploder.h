@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../class/Class.h"
+#include "../system/class/Class.h"
 
 #define TYPE Exploder
 

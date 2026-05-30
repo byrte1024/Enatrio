@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../system/tests.h"
-#include "../cts/UnsafeDictionary.h"
-#include "../cts/UnsafeHashMap.h"
+#include "../system/cts/UnsafeDictionary.h"
+#include "../system/cts/UnsafeHashMap.h"
 
 // -- UnsafeVariedHashMap Tests --
 

@@ -1,7 +1,7 @@
 #pragma once
 
-#include "../cts/UnsafeDictionary.h" // for _UNSAFE_STRLITERAL_LEN
-#include "../cts/UnsafeHashMap.h"
+#include "../system/cts/UnsafeDictionary.h" // for _UNSAFE_STRLITERAL_LEN
+#include "../system/cts/UnsafeHashMap.h"
 #include "../system/tests.h"
 
 static void test_hashmap_create_destroy(void) {

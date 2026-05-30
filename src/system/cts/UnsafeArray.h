@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../system/utils.h"
+#include "../utils.h"
 
 typedef struct UnsafeArray {
     uint8_t *data;

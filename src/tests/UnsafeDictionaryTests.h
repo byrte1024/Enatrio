@@ -3,7 +3,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "../cts/UnsafeDictionary.h"
+#include "../system/cts/UnsafeDictionary.h"
 #include "../system/tests.h"
 
 static void test_dict_create_destroy(void) {

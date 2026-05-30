@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../cts/UnsafeArray.h"
+#include "../system/cts/UnsafeArray.h"
 #include "../system/tests.h"
 
 static void test_array_create_destroy(void) {

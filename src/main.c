@@ -1,4 +1,4 @@
-#include "cts/UnsafeArray.h"
+#include "system/cts/UnsafeArray.h"
 #ifndef INTESTING
 
 #include <stdio.h>
@@ -8,7 +8,7 @@
 #include <raylib.h>
 
 #include "system/utils.h"
-#include "class/Class.h"
+#include "system/class/Class.h"
 #include "classes/exploder.h"
 
 int main() {

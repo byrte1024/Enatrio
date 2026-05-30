@@ -1,8 +1,8 @@
 #pragma once
 
 #include "../system/tests.h"
-#include "../object/Self.h"
-#include "../object/ObjectGraphViz.h"
+#include "../system/object/Self.h"
+#include "../system/object/ObjectGraphViz.h"
 
 // ============================================================
 // Test class: Counter -- an instanced class with Self
