@@ -90,7 +90,7 @@ echo "Compiling..."
 RAYLIB_CFLAGS="-Ilib/raylib/include"
 if [ "$OS_TYPE" = "Linux" ]; then
     RAYLIB_CFLAGS="$(pkg-config --cflags raylib 2>/dev/null || echo -Ilib/raylib/include)"
-    RAYLIB_LIBS="$(pkg-config --libs raylib 2>/dev/null || echo '-lraylib -lGL -lm -lpthread -ldl -lrt -lX11')"
+    RAYLIB_LIBS="$(pkg-config --libs raylib 2>/dev/null || echo '-Llib/raylib/lib -lraylib -lGL -lm -lpthread -ldl -lrt -lX11')"
 else
     RAYLIB_LIBS="-Llib/raylib/lib -lraylib -lopengl32 -lgdi32 -lwinmm"
 fi
