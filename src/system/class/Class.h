@@ -301,7 +301,9 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 // Expands to:
 //   inline const ClassID CID_Exploder = (ClassID)(0x22AB);
 //   inline const char CLASSNAME_Exploder[CLASS_MAXNAMELENGTH] = "Exploder";
+// Enum enumerators are TU-scoped, so a duplicate ID causes a redefinition error at compile time.
 #define BEGIN_CLASS(id) \
+    enum { BAT2(_CLASSID_RESERVED_, id) = (id) }; \
     inline const ClassID BAT2(CID_, TYPE) = (ClassID)(id); \
     inline const char BAT2(CLASSNAME_, TYPE)[CLASS_MAXNAMELENGTH] = BSTR(TYPE)
 
@@ -448,3 +450,27 @@ static inline void FreePayload(MessagePayload* payload) {
         UnsafeVariedHashMap_Destroy(payload->data);
     }
 }
+
+// ============================================================
+// Dispatch helpers
+// ============================================================
+
+static inline uint8_t Dispatch(ClassID cid, MessageID mid) {
+    MessagePayload _p = PreparePayload(cid, mid);
+    DispatchMessage(&_p);
+    uint8_t _r = _p.result;
+    FreePayload(&_p);
+    return _r;
+}
+
+// msg is a MessagePayload* usable in both blocks. Payload is freed after out_block.
+#define DISPATCH(cid, mid, params_block, out_block) ({ \
+    MessagePayload _dp = PreparePayload(cid, mid); \
+    MessagePayload *msg = &_dp; \
+    params_block \
+    DispatchMessage(msg); \
+    out_block \
+    uint8_t _dr = msg->result; \
+    FreePayload(msg); \
+    _dr; \
+})

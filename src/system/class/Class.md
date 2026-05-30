@@ -166,22 +166,65 @@ accepted after this point.
 
 ## Sending Messages
 
+### Dispatch Helpers
+
+Two shorthand forms handle prepare/dispatch/free automatically:
+
+**`Dispatch(cid, mid)`** -- fire-and-forget, no params, no out values.
+Returns `uint8_t` result code.
+
 ```c
-// 1. Prepare the payload (allocates the data map)
+Dispatch(CID_Window, MID_Window_Close);
+
+uint8_t r = Dispatch(CID_Window, MID_Window_Close);
+if (!MESSAGE_RESULT_ISOK(r)) { /* handle error */ }
+```
+
+**`DISPATCH(cid, mid, { params }, { outs })`** -- with params and/or out values.
+`msg` is a `MessagePayload*` available inside both blocks. Payload is freed
+automatically after the out block. Returns `uint8_t` result code.
+
+```c
+// Params only (empty out block)
+DISPATCH(CID_Exploder, MID_Exploder_ShimmiShimmiYea, {
+    Payload_SetValue(msg, "Strength", float, 9.81f);
+}, {});
+
+// Out values only (empty params block)
+int w, h;
+DISPATCH(CID_Window, MID_Window_GetInfo, {}, {
+    w = Payload_GetDeref(msg, "Width", int);
+    h = Payload_GetDeref(msg, "Height", int);
+});
+
+// Both params and out values
+int fps;
+DISPATCH(CID_Window, MID_Window_SetSize, {
+    Payload_SetValue(msg, "Width", int, 1920);
+    Payload_SetValue(msg, "Height", int, 1080);
+}, {
+    fps = Payload_GetDeref(msg, "FPS", int);
+});
+
+// Check result
+uint8_t r = DISPATCH(CID_Window, MID_Window_Open, {
+    Payload_SetValue(msg, "Width", int, 640);
+    Payload_SetValue(msg, "Height", int, 480);
+}, {});
+```
+
+### Manual Dispatch
+
+For cases where the helpers don't fit, use the full prepare/dispatch/free
+sequence directly:
+
+```c
 MessagePayload msg = PreparePayload(CID_Exploder, MID_Exploder_ShimmiShimmiYea);
-
-// 2. Set parameters
 Payload_SetValue(&msg, "Strength", float, 5.0f);
-
-// 3. Dispatch
 DispatchMessage(&msg);
-
-// 4. Check result
 if (MESSAGE_RESULT_ISOK(msg.result)) {
     // success
 }
-
-// 5. Free the payload data map
 FreePayload(&msg);
 ```
 

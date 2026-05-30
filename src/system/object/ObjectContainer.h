@@ -52,6 +52,30 @@ static inline MessagePayload PrepareSelfPayload(TempObjectReference reference, M
     return payload;
 }
 
+// ============================================================
+// Self dispatch helpers
+// ============================================================
+
+static inline uint8_t SelfDispatch(TempObjectReference ref, MessageID mid) {
+    MessagePayload _p = PrepareSelfPayload(ref, mid);
+    DispatchMessage(&_p);
+    uint8_t _r = _p.result;
+    FreePayload(&_p);
+    return _r;
+}
+
+// msg is a MessagePayload* usable in both blocks. Self is pre-set. Freed after out_block.
+#define SELF_DISPATCH(ref, mid, params_block, out_block) ({ \
+    MessagePayload _sp = PrepareSelfPayload(ref, mid); \
+    MessagePayload *msg = &_sp; \
+    params_block \
+    DispatchMessage(msg); \
+    out_block \
+    uint8_t _sr = msg->result; \
+    FreePayload(msg); \
+    _sr; \
+})
+
 // Object lifecycle is a state machine: Ghost -> Typed -> Filled.
 // Each transition has a dedicated function with guards that enforce
 // the correct state, preventing partially-initialized objects from

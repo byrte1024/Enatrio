@@ -338,6 +338,66 @@ TempObjectReference ref = Object_SGetRef(obj, "key");
 
 ---
 
+## Dispatching Messages to Objects
+
+### Self Dispatch Helpers
+
+Two shorthand forms handle prepare/dispatch/free automatically, with `Self`
+pre-set in the payload:
+
+**`SelfDispatch(ref, mid)`** -- fire-and-forget, no params, no out values.
+Returns `uint8_t` result code.
+
+```c
+SelfDispatch(obj, MID_Default_SELF_Create);
+```
+
+**`SELF_DISPATCH(ref, mid, { params }, { outs })`** -- with params and/or out
+values. `msg` is a `MessagePayload*` available inside both blocks. Payload is
+freed automatically after the out block. Returns `uint8_t` result code.
+
+```c
+// Params only
+SELF_DISPATCH(obj, MID_Counter_Increment, {
+    Payload_SetValue(msg, "Amount", int, 5);
+}, {});
+
+// Out values only
+int count;
+SELF_DISPATCH(obj, MID_Counter_GetCount, {}, {
+    count = Payload_GetDeref(msg, "Count", int);
+});
+
+// Both params and out values
+int result;
+SELF_DISPATCH(obj, MID_Counter_AddAndGet, {
+    Payload_SetValue(msg, "Amount", int, 10);
+}, {
+    result = Payload_GetDeref(msg, "Count", int);
+});
+
+// Check result
+uint8_t r = SELF_DISPATCH(obj, MID_Counter_Reset, {}, {});
+if (!MESSAGE_RESULT_ISOK(r)) { /* handle error */ }
+```
+
+### Manual Self Dispatch
+
+For cases where the helpers don't fit:
+
+```c
+MessagePayload msg = PrepareSelfPayload(obj, MID_Counter_Increment);
+Payload_SetValue(&msg, "Amount", int, 5);
+DispatchMessage(&msg);
+FreePayload(&msg);
+```
+
+`PrepareSelfPayload` works like `PreparePayload` but automatically sets
+`cid_target` from the object's ClassID and stores the `Self` pointer in the
+payload.
+
+---
+
 ## Visualization
 
 Dump the object reference graph to a text file for debugging:
