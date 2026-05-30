@@ -75,17 +75,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: enatrio-linux-debug
-          path: |
-            build/debug/linux/Enatrio
-            build/debug/linux/assets/
+          path: build/debug/linux/
 
       - name: Upload release
         uses: actions/upload-artifact@v4
         with:
           name: enatrio-linux-release
-          path: |
-            build/release/linux/Enatrio
-            build/release/linux/assets/
+          path: build/release/linux/
 
   build-windows:
     runs-on: windows-latest
@@ -130,17 +126,13 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: enatrio-windows-debug
-          path: |
-            build/debug/windows/Enatrio.exe
-            build/debug/windows/assets/
+          path: build/debug/windows/
 
       - name: Upload release
         uses: actions/upload-artifact@v4
         with:
           name: enatrio-windows-release
-          path: |
-            build/release/windows/Enatrio.exe
-            build/release/windows/assets/
+          path: build/release/windows/
 
   test-linux:
     runs-on: ubuntu-latest
@@ -189,13 +181,11 @@ jobs:
       - name: Build tests
         run: bash ./build.sh tests --no-lint
 
-      - name: Upload test binary
+      - name: Upload tests
         uses: actions/upload-artifact@v4
         with:
           name: enatrio-tests-linux
-          path: |
-            build/tests/linux/Enatrio
-            build/tests/linux/assets/
+          path: build/tests/linux/
 
       - name: Run tests
         run: |
@@ -248,13 +238,11 @@ jobs:
       - name: Build tests
         run: bash ./build.sh tests --no-lint
 
-      - name: Upload test binary
+      - name: Upload tests
         uses: actions/upload-artifact@v4
         with:
           name: enatrio-tests-windows
-          path: |
-            build/tests/windows/Enatrio.exe
-            build/tests/windows/assets/
+          path: build/tests/windows/
 
       - name: Run tests
         run: |
