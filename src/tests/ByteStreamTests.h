@@ -3,6 +3,15 @@
 #include "../system/tests.h"
 #include "../system/cts/ByteStream.h"
 
+// AppLocal resolves to a platform-appropriate writable directory.
+// Tests write temp files there so they work on both Linux and Windows CI.
+#define _BSTEST_PATH(name) _bstest_path(name)
+static const char *_bstest_path(const char *name) {
+    static char buf[512];
+    snprintf(buf, sizeof(buf), "%s/%s", AppLocal, name);
+    return buf;
+}
+
 static void test_bytestream_create_destroy(void) {
     TEST("bytestream: create and destroy");
     ByteStream *s = ByteStream_Create(32);
@@ -207,7 +216,7 @@ static void test_bytestream_save_load(void) {
     const char *tag = "test";
     ByteStream_Write(s, tag, 4);
 
-    const char *path = "/tmp/enatrio_bytestream_test.ebsf";
+    const char *path = _BSTEST_PATH("bytestream_test.ebsf");
     ASSERT(ByteStream_SaveToFile(s, path) == 0);
 
     ByteStream *loaded = ByteStream_LoadFromFile(path);
@@ -232,7 +241,7 @@ static void test_bytestream_save_load(void) {
 
 static void test_bytestream_load_bad_magic(void) {
     TEST("bytestream: load rejects bad magic");
-    const char *path = "/tmp/enatrio_bytestream_badmagic.bin";
+    const char *path = _BSTEST_PATH("bytestream_badmagic.bin");
     FILE *f = fopen(path, "wb");
     ASSERT(f != NULL);
     fwrite("JUNK", 1, 4, f);
@@ -247,7 +256,7 @@ static void test_bytestream_load_bad_magic(void) {
 static void test_bytestream_load_empty(void) {
     TEST("bytestream: save and load empty stream");
     ByteStream *s = ByteStream_Create(8);
-    const char *path = "/tmp/enatrio_bytestream_empty.ebsf";
+    const char *path = _BSTEST_PATH("bytestream_empty.ebsf");
     ASSERT(ByteStream_SaveToFile(s, path) == 0);
 
     ByteStream *loaded = ByteStream_LoadFromFile(path);
@@ -346,7 +355,7 @@ static void test_bytestream_skip_clamps(void) {
 
 static void test_bytestream_load_truncated_header(void) {
     TEST("bytestream: load rejects truncated header");
-    const char *path = "/tmp/enatrio_bytestream_trunc.bin";
+    const char *path = _BSTEST_PATH("bytestream_trunc.bin");
     FILE *f = fopen(path, "wb");
     ASSERT(f != NULL);
     fwrite("EBSF\x01", 1, 5, f);
@@ -360,7 +369,7 @@ static void test_bytestream_load_truncated_header(void) {
 
 static void test_bytestream_load_rejects_huge_length(void) {
     TEST("bytestream: load rejects length > BYTESTREAM_MAX_SIZE");
-    const char *path = "/tmp/enatrio_bytestream_huge.bin";
+    const char *path = _BSTEST_PATH("bytestream_huge.bin");
     FILE *f = fopen(path, "wb");
     ASSERT(f != NULL);
     fwrite("EBSF", 1, 4, f);
@@ -378,7 +387,7 @@ static void test_bytestream_load_rejects_huge_length(void) {
 
 static void test_bytestream_load_truncated_data(void) {
     TEST("bytestream: load rejects truncated data");
-    const char *path = "/tmp/enatrio_bytestream_truncdata.bin";
+    const char *path = _BSTEST_PATH("bytestream_truncdata.bin");
     FILE *f = fopen(path, "wb");
     ASSERT(f != NULL);
     fwrite("EBSF", 1, 4, f);
