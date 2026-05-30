@@ -21,13 +21,11 @@ int main() {
   RegisterClass(Window_ClassDef());
   EndClassRegistrations();
 
-  DISPATCH(CID_Exploder, MID_Exploder_ShimmiShimmiYea, {
-    Payload_SetValue(msg, "Strength", float, 9.81f);
-  }, {});
-
   DISPATCH(CID_Window, MID_Window_Open, {
     Payload_SetValue(msg, "Width", int, 640);
     Payload_SetValue(msg, "Height", int, 480);
+    Payload_SetValue(msg, "VirtualWidth", int, 160);
+    Payload_SetValue(msg, "VirtualHeight", int, 120);
   }, {});
 
   DISPATCH(CID_Window, MID_Window_SetTargetFPS, {
@@ -35,12 +33,17 @@ int main() {
   }, {});
 
   while (!WindowShouldClose()) {
-    BeginDrawing();
+    Window_BeginFrame();
+
     ClearBackground(RAYWHITE);
-    DrawText("Enatrio", 40, 40, 40, DARKGRAY);
-    DrawFPS(10, 10);
-    EndDrawing();
+    DrawText("Enatrio", 4, 4, 8, DARKGRAY);
+    DrawRectangle(60, 40, 40, 40, RED);
+    DrawCircle(80, 80, 15, BLUE);
+
+    Window_EndFrame();
   }
+
+  
 
   Dispatch(CID_Window, MID_Window_Close);
 
