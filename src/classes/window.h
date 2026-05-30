@@ -1,65 +1,12 @@
 #pragma once
 
-#include "../system/class/Class.h"
-
-// ============================================================
-// Virtual screen state
-// ============================================================
+#include "../system/object/Self.h"
 
 #define WINDOW_ASPECT_BLACKBAR 0
 #define WINDOW_ASPECT_STRETCH  1
 
 #define WINDOW_INTERP_NEAREST  TEXTURE_FILTER_POINT
 #define WINDOW_INTERP_BILINEAR TEXTURE_FILTER_BILINEAR
-
-static RenderTexture2D _window_vtex = {0};
-static int _window_vw = 0;
-static int _window_vh = 0;
-static int _window_interp = WINDOW_INTERP_NEAREST;
-static int _window_aspect = WINDOW_ASPECT_BLACKBAR;
-static bool _window_has_virtual = false;
-
-// ============================================================
-// Frame helpers -- called directly in the game loop, not via messages.
-// Window_BeginFrame: clears real screen, begins drawing to virtual screen.
-// Window_EndFrame: presents virtual screen scaled to real screen.
-// ============================================================
-
-static void Window_BeginFrame(void) {
-    BeginDrawing();
-    ClearBackground(BLACK);
-    if (_window_has_virtual) {
-        BeginTextureMode(_window_vtex);
-    }
-}
-
-static void Window_EndFrame(void) {
-    if (_window_has_virtual) {
-        EndTextureMode();
-
-        SetTextureFilter(_window_vtex.texture, _window_interp);
-
-        // RenderTexture is Y-flipped in raylib
-        Rectangle src = { 0, 0, (float)_window_vw, -(float)_window_vh };
-        Rectangle dst;
-
-        if (_window_aspect == WINDOW_ASPECT_STRETCH) {
-            dst = (Rectangle){ 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
-        } else {
-            float sw = (float)GetScreenWidth();
-            float sh = (float)GetScreenHeight();
-            float scale = (sw / _window_vw < sh / _window_vh)
-                        ? sw / _window_vw
-                        : sh / _window_vh;
-            float dw = _window_vw * scale;
-            float dh = _window_vh * scale;
-            dst = (Rectangle){ (sw - dw) * 0.5f, (sh - dh) * 0.5f, dw, dh };
-        }
-
-        DrawTexturePro(_window_vtex.texture, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
-    }
-    EndDrawing();
-}
 
 // ============================================================
 // Class definition
@@ -69,21 +16,45 @@ static void Window_EndFrame(void) {
 
 BEGIN_CLASS(0x22FF);
 
-DECLARE_MID(Open);
-DECLARE_MID(Close);
-DECLARE_MID(SetTitle);
-DECLARE_MID(SetSize);
-DECLARE_MID(SetTargetFPS);
-DECLARE_MID(ToggleFullscreen);
-DECLARE_MID(SetVsync);
-DECLARE_MID(SetInterpolation);
-DECLARE_MID(SetAspectMode);
-DECLARE_MID(SetVirtualSize);
-DECLARE_MID(GetInfo);
+DECLARE_SELF_MID(Open);
+DECLARE_SELF_MID(Close);
+DECLARE_SELF_MID(SetTitle);
+DECLARE_SELF_MID(SetSize);
+DECLARE_SELF_MID(SetTargetFPS);
+DECLARE_SELF_MID(ToggleFullscreen);
+DECLARE_SELF_MID(SetVsync);
+DECLARE_SELF_MID(SetInterpolation);
+DECLARE_SELF_MID(SetAspectMode);
+DECLARE_SELF_MID(SetVirtualSize);
+DECLARE_SELF_MID(GetInfo);
 
-// Params: Width (int), Height (int), Title (char*)
-// Optional: VirtualWidth (int), VirtualHeight (int)
-MESSAGE_HANDLER_BEGIN(Open)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Create)
+    RenderTexture2D empty_vtex = {0};
+    _Object_StoreValue(Self_Values, "vtex", 4,
+                       &empty_vtex, sizeof(RenderTexture2D),
+                       CID_Window, SER_SKIP, 0);
+    Self_SetTransient("vw", int, 0);
+    Self_SetTransient("vh", int, 0);
+    Self_SetTransient("rw", int, 0);
+    Self_SetTransient("rh", int, 0);
+    Self_SetValue("interp", int, WINDOW_INTERP_NEAREST);
+    Self_SetValue("aspect", int, WINDOW_ASPECT_BLACKBAR);
+    Self_SetTransient("has_virtual", int, 0);
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Destroy)
+    int has_virtual = Self_GetDeref("has_virtual", int);
+    if (has_virtual) {
+        RenderTexture2D *vtex = Self_Get("vtex", RenderTexture2D);
+        if (vtex) UnloadRenderTexture(*vtex);
+    }
+    if (IsWindowReady()) {
+        CloseWindow();
+        LOG_INFO("Window closed via SELF_Destroy");
+    }
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN(Open)
     MH_ExtractDeref(Width, int);
     MH_ExtractDeref(Height, int);
     char *Title = (char *)MH_Get(Title, char);
@@ -96,61 +67,70 @@ MESSAGE_HANDLER_BEGIN(Open)
         payload->result = MESSAGE_RESULT_INTERNAL_ERROR;
         return;
     }
+    Self_SetTransient("rw", int, GetScreenWidth());
+    Self_SetTransient("rh", int, GetScreenHeight());
     LOG_INFO("Window opened: %dx%d \"%s\"", Width, Height, Title);
 
     if (MH_Has(VirtualWidth) && MH_Has(VirtualHeight)) {
         int vw = MH_GetDeref(VirtualWidth, int);
         int vh = MH_GetDeref(VirtualHeight, int);
         if (vw > 0 && vh > 0) {
-            _window_vtex = LoadRenderTexture(vw, vh);
-            _window_vw = vw;
-            _window_vh = vh;
-            _window_has_virtual = true;
-            SetTextureFilter(_window_vtex.texture, _window_interp);
+            RenderTexture2D vtex = LoadRenderTexture(vw, vh);
+            SetTextureFilter(vtex.texture, Self_GetDeref("interp", int));
+            _Object_StoreValue(Self_Values, "vtex", 4,
+                               &vtex, sizeof(RenderTexture2D),
+                               CID_Window, SER_SKIP, 0);
+            Self_SetTransient("vw", int, vw);
+            Self_SetTransient("vh", int, vh);
+            Self_SetTransient("has_virtual", int, 1);
             LOG_INFO("Virtual screen: %dx%d", vw, vh);
         }
     }
 MESSAGE_HANDLER_END()
 
-MESSAGE_HANDLER_BEGIN(Close)
+SELF_MESSAGE_HANDLER_BEGIN(Close)
     if (!IsWindowReady()) {
         payload->result = MESSAGE_RESULT_NOT_READY;
         return;
     }
-    if (_window_has_virtual) {
-        UnloadRenderTexture(_window_vtex);
-        _window_has_virtual = false;
-        _window_vw = 0;
-        _window_vh = 0;
+    int has_virtual = Self_GetDeref("has_virtual", int);
+    if (has_virtual) {
+        RenderTexture2D *vtex = Self_Get("vtex", RenderTexture2D);
+        if (vtex) UnloadRenderTexture(*vtex);
+        Self_SetTransient("has_virtual", int, 0);
+        Self_SetTransient("vw", int, 0);
+        Self_SetTransient("vh", int, 0);
     }
     CloseWindow();
     LOG_INFO("Window closed");
 MESSAGE_HANDLER_END()
 
-MESSAGE_HANDLER_BEGIN(SetTitle)
+SELF_MESSAGE_HANDLER_BEGIN(SetTitle)
     MH_Require(Title);
     char *Title = (char *)MH_Get(Title, char);
     SetWindowTitle(Title);
 MESSAGE_HANDLER_END()
 
-MESSAGE_HANDLER_BEGIN(SetSize)
+SELF_MESSAGE_HANDLER_BEGIN(SetSize)
     MH_ExtractDeref(Width, int);
     MH_ExtractDeref(Height, int);
     SetWindowSize(Width, Height);
+    Self_SetTransient("rw", int, Width);
+    Self_SetTransient("rh", int, Height);
     LOG_INFO("Window resized to %dx%d", Width, Height);
 MESSAGE_HANDLER_END()
 
-MESSAGE_HANDLER_BEGIN(SetTargetFPS)
+SELF_MESSAGE_HANDLER_BEGIN(SetTargetFPS)
     MH_ExtractDeref(FPS, int);
     SetTargetFPS(FPS);
     LOG_INFO("Target FPS set to %d", FPS);
 MESSAGE_HANDLER_END()
 
-MESSAGE_HANDLER_BEGIN(ToggleFullscreen)
+SELF_MESSAGE_HANDLER_BEGIN(ToggleFullscreen)
     ToggleFullscreen();
 MESSAGE_HANDLER_END()
 
-MESSAGE_HANDLER_BEGIN(SetVsync)
+SELF_MESSAGE_HANDLER_BEGIN(SetVsync)
     MH_ExtractDeref(Enabled, int);
     if (Enabled) {
         SetWindowState(FLAG_VSYNC_HINT);
@@ -159,85 +139,182 @@ MESSAGE_HANDLER_BEGIN(SetVsync)
     }
 MESSAGE_HANDLER_END()
 
-// Params: Mode (int) -- WINDOW_INTERP_NEAREST or WINDOW_INTERP_BILINEAR
-MESSAGE_HANDLER_BEGIN(SetInterpolation)
+SELF_MESSAGE_HANDLER_BEGIN(SetInterpolation)
     MH_ExtractDeref(Mode, int);
-    _window_interp = Mode;
-    if (_window_has_virtual) {
-        SetTextureFilter(_window_vtex.texture, _window_interp);
+    Self_SetValue("interp", int, Mode);
+    int has_virtual = Self_GetDeref("has_virtual", int);
+    if (has_virtual) {
+        RenderTexture2D *vtex = Self_Get("vtex", RenderTexture2D);
+        if (vtex) SetTextureFilter(vtex->texture, Mode);
     }
     LOG_INFO("Interpolation set to %d", Mode);
 MESSAGE_HANDLER_END()
 
-// Params: Mode (int) -- WINDOW_ASPECT_BLACKBAR or WINDOW_ASPECT_STRETCH
-MESSAGE_HANDLER_BEGIN(SetAspectMode)
+SELF_MESSAGE_HANDLER_BEGIN(SetAspectMode)
     MH_ExtractDeref(Mode, int);
-    _window_aspect = Mode;
-    LOG_INFO("Aspect mode set to %s", Mode == WINDOW_ASPECT_STRETCH ? "STRETCH" : "BLACKBAR");
+    Self_SetValue("aspect", int, Mode);
+    LOG_INFO("Aspect mode set to %s",
+        Mode == WINDOW_ASPECT_STRETCH ? "STRETCH" : "BLACKBAR");
 MESSAGE_HANDLER_END()
 
-// Params: VirtualWidth (int), VirtualHeight (int)
-MESSAGE_HANDLER_BEGIN(SetVirtualSize)
+SELF_MESSAGE_HANDLER_BEGIN(SetVirtualSize)
     MH_ExtractDeref(VirtualWidth, int);
     MH_ExtractDeref(VirtualHeight, int);
     if (VirtualWidth <= 0 || VirtualHeight <= 0) {
         payload->result = MESSAGE_RESULT_INVALID_PARAMS;
         return;
     }
-    if (_window_has_virtual) {
-        UnloadRenderTexture(_window_vtex);
+    int has_virtual = Self_GetDeref("has_virtual", int);
+    if (has_virtual) {
+        RenderTexture2D *vtex = Self_Get("vtex", RenderTexture2D);
+        if (vtex) UnloadRenderTexture(*vtex);
     }
-    _window_vtex = LoadRenderTexture(VirtualWidth, VirtualHeight);
-    _window_vw = VirtualWidth;
-    _window_vh = VirtualHeight;
-    _window_has_virtual = true;
-    SetTextureFilter(_window_vtex.texture, _window_interp);
+    RenderTexture2D vtex = LoadRenderTexture(VirtualWidth, VirtualHeight);
+    SetTextureFilter(vtex.texture, Self_GetDeref("interp", int));
+    _Object_StoreValue(Self_Values, "vtex", 4,
+                       &vtex, sizeof(RenderTexture2D),
+                       CID_Window, SER_SKIP, 0);
+    Self_SetValue("vw", int, VirtualWidth);
+    Self_SetValue("vh", int, VirtualHeight);
+    Self_SetValue("has_virtual", int, 1);
     LOG_INFO("Virtual screen set to %dx%d", VirtualWidth, VirtualHeight);
 MESSAGE_HANDLER_END()
 
-// Out: Width, Height, VirtualWidth, VirtualHeight, Fullscreen, Focused, FPS,
-//      Interpolation, AspectMode, HasVirtual (all int)
-MESSAGE_HANDLER_BEGIN(GetInfo)
+SELF_MESSAGE_HANDLER_BEGIN(GetInfo)
+    Self_SetTransient("rw", int, GetScreenWidth());
+    Self_SetTransient("rh", int, GetScreenHeight());
     MH_SetValue(Width, int, GetScreenWidth());
     MH_SetValue(Height, int, GetScreenHeight());
-    MH_SetValue(VirtualWidth, int, _window_vw);
-    MH_SetValue(VirtualHeight, int, _window_vh);
+    MH_SetValue(VirtualWidth, int, Self_GetDeref("vw", int));
+    MH_SetValue(VirtualHeight, int, Self_GetDeref("vh", int));
     MH_SetValue(Fullscreen, int, IsWindowFullscreen());
     MH_SetValue(Focused, int, IsWindowFocused());
     MH_SetValue(FPS, int, GetFPS());
-    MH_SetValue(Interpolation, int, _window_interp);
-    MH_SetValue(AspectMode, int, _window_aspect);
-    MH_SetValue(HasVirtual, int, _window_has_virtual ? 1 : 0);
+    MH_SetValue(Interpolation, int, Self_GetDeref("interp", int));
+    MH_SetValue(AspectMode, int, Self_GetDeref("aspect", int));
+    MH_SetValue(HasVirtual, int, Self_GetDeref("has_virtual", int));
 MESSAGE_HANDLER_END()
 
 CAN_RECEIVE_BEGIN()
-    CAN_RECEIVE_MID(Open)
-    CAN_RECEIVE_MID(Close)
-    CAN_RECEIVE_MID(SetTitle)
-    CAN_RECEIVE_MID(SetSize)
-    CAN_RECEIVE_MID(SetTargetFPS)
-    CAN_RECEIVE_MID(ToggleFullscreen)
-    CAN_RECEIVE_MID(SetVsync)
-    CAN_RECEIVE_MID(SetInterpolation)
-    CAN_RECEIVE_MID(SetAspectMode)
-    CAN_RECEIVE_MID(SetVirtualSize)
-    CAN_RECEIVE_MID(GetInfo)
+    SELF_CAN_RECEIVE_MID_EXTERN(Default, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Default, Destroy)
+    SELF_CAN_RECEIVE_MID(Open)
+    SELF_CAN_RECEIVE_MID(Close)
+    SELF_CAN_RECEIVE_MID(SetTitle)
+    SELF_CAN_RECEIVE_MID(SetSize)
+    SELF_CAN_RECEIVE_MID(SetTargetFPS)
+    SELF_CAN_RECEIVE_MID(ToggleFullscreen)
+    SELF_CAN_RECEIVE_MID(SetVsync)
+    SELF_CAN_RECEIVE_MID(SetInterpolation)
+    SELF_CAN_RECEIVE_MID(SetAspectMode)
+    SELF_CAN_RECEIVE_MID(SetVirtualSize)
+    SELF_CAN_RECEIVE_MID(GetInfo)
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
-    RECEIVE_MESSAGE_ROUTE(Open)
-    RECEIVE_MESSAGE_ROUTE(Close)
-    RECEIVE_MESSAGE_ROUTE(SetTitle)
-    RECEIVE_MESSAGE_ROUTE(SetSize)
-    RECEIVE_MESSAGE_ROUTE(SetTargetFPS)
-    RECEIVE_MESSAGE_ROUTE(ToggleFullscreen)
-    RECEIVE_MESSAGE_ROUTE(SetVsync)
-    RECEIVE_MESSAGE_ROUTE(SetInterpolation)
-    RECEIVE_MESSAGE_ROUTE(SetAspectMode)
-    RECEIVE_MESSAGE_ROUTE(SetVirtualSize)
-    RECEIVE_MESSAGE_ROUTE(GetInfo)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Default, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Default, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE(Open)
+    SELF_RECEIVE_MESSAGE_ROUTE(Close)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetTitle)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetSize)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetTargetFPS)
+    SELF_RECEIVE_MESSAGE_ROUTE(ToggleFullscreen)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetVsync)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetInterpolation)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetAspectMode)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetVirtualSize)
+    SELF_RECEIVE_MESSAGE_ROUTE(GetInfo)
 RECEIVE_MESSAGE_END()
 
 CLASSDEF()
 
 #undef TYPE
+
+// ============================================================
+// Singleton
+// ============================================================
+
+#define LINTNORE
+static ExternalReference _window_instance = NULL;
+#undef LINTNORE
+
+#define GET_WINDOW_SINGLETON_REF (ObjectContainer_TempFrom(_window_instance))
+
+static ExternalReference Window_CreateSingleton(void) {
+    if (_window_instance != NULL) {
+        LOG_ERROR("Window singleton already exists");
+        return _window_instance;
+    }
+    _window_instance = Object_CreateRef(CID_Window);
+    return _window_instance;
+}
+
+static void Window_DestroySingleton(void) {
+    if (_window_instance == NULL) {
+        LOG_ERROR("No window singleton to destroy");
+        return;
+    }
+    ObjectContainer_UnRef_External(&_window_instance);
+}
+
+// ============================================================
+// Frame helpers
+// ============================================================
+
+static void Window_BeginFrame(void) {
+    BeginDrawing();
+    ClearBackground(BLACK);
+    if (_window_instance == NULL) return;
+    TempObjectReference w = GET_WINDOW_SINGLETON_REF;
+    if (!w || !w->data) return;
+    int *vflag = (int *)_Object_GetValueData(w->data->values, "has_virtual", 11);
+    if (vflag && *vflag) {
+        RenderTexture2D *vtex = (RenderTexture2D *)_Object_GetValueData(w->data->values, "vtex", 4);
+        if (vtex) BeginTextureMode(*vtex);
+    }
+}
+
+static void Window_EndFrame(void) {
+    if (_window_instance == NULL) { EndDrawing(); return; }
+    TempObjectReference w = GET_WINDOW_SINGLETON_REF;
+    if (!w || !w->data) { EndDrawing(); return; }
+
+    // Keep rw/rh in sync with actual screen size (window is resizable)
+    int _cur_rw = GetScreenWidth();
+    int _cur_rh = GetScreenHeight();
+    _Object_StoreValue(w->data->values, "rw", 2, &_cur_rw, sizeof(int), CID_Window, SER_SKIP, 0);
+    _Object_StoreValue(w->data->values, "rh", 2, &_cur_rh, sizeof(int), CID_Window, SER_SKIP, 0);
+
+    int *vflag = (int *)_Object_GetValueData(w->data->values, "has_virtual", 11);
+    if (vflag && *vflag) {
+        EndTextureMode();
+
+        RenderTexture2D *vtex = (RenderTexture2D *)_Object_GetValueData(w->data->values, "vtex", 4);
+        int *vw = (int *)_Object_GetValueData(w->data->values, "vw", 2);
+        int *vh = (int *)_Object_GetValueData(w->data->values, "vh", 2);
+        int *interp = (int *)_Object_GetValueData(w->data->values, "interp", 6);
+        int *aspect = (int *)_Object_GetValueData(w->data->values, "aspect", 6);
+
+        if (!vtex || !vw || !vh || !interp || !aspect) { EndDrawing(); return; }
+
+        SetTextureFilter(vtex->texture, *interp);
+
+        Rectangle src = { 0, 0, (float)*vw, -(float)*vh };
+        Rectangle dst;
+
+        if (*aspect == WINDOW_ASPECT_STRETCH) {
+            dst = (Rectangle){ 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+        } else {
+            float sw = (float)GetScreenWidth();
+            float sh = (float)GetScreenHeight();
+            float scale = (sw / *vw < sh / *vh) ? sw / *vw : sh / *vh;
+            float dw = *vw * scale;
+            float dh = *vh * scale;
+            dst = (Rectangle){ (sw - dw) * 0.5f, (sh - dh) * 0.5f, dw, dh };
+        }
+
+        DrawTexturePro(vtex->texture, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
+    }
+    EndDrawing();
+}

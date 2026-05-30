@@ -57,7 +57,9 @@ static inline MessagePayload PrepareSelfPayload(TempObjectReference reference, M
 // ============================================================
 
 static inline uint8_t SelfDispatch(TempObjectReference ref, MessageID mid) {
+    if (ref == NULL) { LOG_ERROR("SelfDispatch: NULL reference"); return MESSAGE_RESULT_INVALID_SELF; }
     MessagePayload _p = PrepareSelfPayload(ref, mid);
+    if (_p.data == NULL) { return MESSAGE_RESULT_OOM; }
     DispatchMessage(&_p);
     uint8_t _r = _p.result;
     FreePayload(&_p);
@@ -66,13 +68,20 @@ static inline uint8_t SelfDispatch(TempObjectReference ref, MessageID mid) {
 
 // msg is a MessagePayload* usable in both blocks. Self is pre-set. Freed after out_block.
 #define SELF_DISPATCH(ref, mid, params_block, out_block) ({ \
-    MessagePayload _sp = PrepareSelfPayload(ref, mid); \
-    MessagePayload *msg = &_sp; \
-    params_block \
-    DispatchMessage(msg); \
-    out_block \
-    uint8_t _sr = msg->result; \
-    FreePayload(msg); \
+    uint8_t _sr = MESSAGE_RESULT_INVALID_SELF; \
+    if ((ref) == NULL) { LOG_ERROR("SELF_DISPATCH: NULL reference"); } \
+    else { \
+        MessagePayload _sp = PrepareSelfPayload(ref, mid); \
+        MessagePayload *msg = &_sp; \
+        if (msg->data == NULL) { _sr = MESSAGE_RESULT_OOM; } \
+        else { \
+            params_block \
+            DispatchMessage(msg); \
+            out_block \
+            _sr = msg->result; \
+        } \
+        FreePayload(msg); \
+    } \
     _sr; \
 })
 

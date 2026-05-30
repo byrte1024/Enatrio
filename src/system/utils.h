@@ -52,6 +52,56 @@
 
 #endif
 
+// Defaults for build-injected defines so clangd doesn't choke
+#ifndef PROJECT_NAME
+#define PROJECT_NAME Enatrio
+#endif
+#ifndef HASH
+#define HASH 0UL
+#endif
+#ifndef BUILD_DAY
+#define BUILD_DAY 0
+#endif
+#ifndef BUILD_MONTH
+#define BUILD_MONTH 0
+#endif
+#ifndef BUILD_YEAR
+#define BUILD_YEAR 0
+#endif
+#ifndef BUILD_HOUR
+#define BUILD_HOUR 0
+#endif
+#ifndef BUILD_MINUTE
+#define BUILD_MINUTE 0
+#endif
+#ifndef BUILD_SECOND
+#define BUILD_SECOND 0
+#endif
+#ifndef GIT_HASH_FULL
+#define GIT_HASH_FULL "unknown"
+#endif
+#ifndef GIT_HASH
+#define GIT_HASH "unknown"
+#endif
+#ifndef GIT_BRANCH
+#define GIT_BRANCH "unknown"
+#endif
+#ifndef GIT_DIRTY
+#define GIT_DIRTY 0
+#endif
+#ifndef BUILD_TYPE_STR
+#define BUILD_TYPE_STR "unknown"
+#endif
+#ifndef BUILD_PLATFORM
+#define BUILD_PLATFORM "unknown"
+#endif
+#ifndef SRC_FILE_COUNT
+#define SRC_FILE_COUNT 0
+#endif
+#ifndef SRC_LINE_COUNT
+#define SRC_LINE_COUNT 0
+#endif
+
 #define LOG_BUILD_INFO() do { \
     LOG_INFO("========================================"); \
     LOG_INFO("  " BSTR(PROJECT_NAME) " (" BUILD_TYPE_STR ")"); \

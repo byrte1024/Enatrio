@@ -465,6 +465,7 @@ static inline void FreePayload(MessagePayload* payload) {
 
 static inline uint8_t Dispatch(ClassID cid, MessageID mid) {
     MessagePayload _p = PreparePayload(cid, mid);
+    if (_p.data == NULL) { return MESSAGE_RESULT_OOM; }
     DispatchMessage(&_p);
     uint8_t _r = _p.result;
     FreePayload(&_p);
@@ -475,10 +476,13 @@ static inline uint8_t Dispatch(ClassID cid, MessageID mid) {
 #define DISPATCH(cid, mid, params_block, out_block) ({ \
     MessagePayload _dp = PreparePayload(cid, mid); \
     MessagePayload *msg = &_dp; \
-    params_block \
-    DispatchMessage(msg); \
-    out_block \
-    uint8_t _dr = msg->result; \
+    uint8_t _dr = MESSAGE_RESULT_OOM; \
+    if (msg->data != NULL) { \
+        params_block \
+        DispatchMessage(msg); \
+        out_block \
+        _dr = msg->result; \
+    } \
     FreePayload(msg); \
     _dr; \
 })

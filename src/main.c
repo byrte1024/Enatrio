@@ -7,7 +7,7 @@
 #include <raylib.h>
 
 #include "system/utils.h"
-#include "system/class/Class.h"
+#include "system/object/Self.h"
 
 #include "classes/window.h"
 #include "classes/exploder.h"
@@ -21,14 +21,17 @@ int main() {
   RegisterClass(Window_ClassDef());
   EndClassRegistrations();
 
-  DISPATCH(CID_Window, MID_Window_Open, {
+  Window_CreateSingleton();
+  TempObjectReference win = GET_WINDOW_SINGLETON_REF;
+
+  SELF_DISPATCH(win, MID_Window_SELF_Open, {
     Payload_SetValue(msg, "Width", int, 640);
     Payload_SetValue(msg, "Height", int, 480);
     Payload_SetValue(msg, "VirtualWidth", int, 160);
     Payload_SetValue(msg, "VirtualHeight", int, 120);
   }, {});
 
-  DISPATCH(CID_Window, MID_Window_SetTargetFPS, {
+  SELF_DISPATCH(win, MID_Window_SELF_SetTargetFPS, {
     Payload_SetValue(msg, "FPS", int, 120);
   }, {});
 
@@ -43,9 +46,8 @@ int main() {
     Window_EndFrame();
   }
 
-  
-
-  Dispatch(CID_Window, MID_Window_Close);
+  SelfDispatch(win, MID_Window_SELF_Close);
+  Window_DestroySingleton();
 
   return 0;
 }
