@@ -44,6 +44,25 @@ typedef struct ObjectContainer* TempObjectReference;
 #define ObjectContainer_TotalRefs(c) ((c)->internal_refs + (c)->external_refs)
 
 // ============================================================
+// Value metadata -- every value stored in ObjectData.values
+// carries a 6-byte header so the serializer knows how to
+// persist it without class-specific knowledge.
+// ============================================================
+
+#define SER_RAW    0
+#define SER_SKIP   1
+#define SER_DEREF  2
+#define SER_STRING 3
+#define SER_USER_START 16
+#define SER_MAX_ID 256
+
+typedef struct {
+    ClassID owner;
+    uint16_t ser_id;
+    uint16_t ser_arg;
+} ObjectValueHeader;
+
+// ============================================================
 // SELF message macros
 // ============================================================
 
@@ -79,5 +98,7 @@ typedef struct ObjectContainer* TempObjectReference;
 
 DECLARE_SELF_MID(Create);
 DECLARE_SELF_MID(Destroy);
+DECLARE_SELF_MID(Serialize);
+DECLARE_SELF_MID(Deserialize);
 
 #undef TYPE

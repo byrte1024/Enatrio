@@ -3,6 +3,38 @@
 #include "ObjectRef.h"
 
 // ============================================================
+// Value storage helpers -- prepend ObjectValueHeader to every value
+// ============================================================
+
+static int _Object_StoreValue(UnsafeVariedHashMap *map, const void *key, uint32_t key_len,
+                               const void *value, uint32_t value_size,
+                               ClassID owner, uint16_t ser_id, uint16_t ser_arg) {
+    uint32_t total = (uint32_t)sizeof(ObjectValueHeader) + value_size;
+    uint8_t buf[total];
+    ObjectValueHeader *hdr = (ObjectValueHeader *)buf;
+    hdr->owner = owner;
+    hdr->ser_id = ser_id;
+    hdr->ser_arg = ser_arg;
+    memcpy(buf + sizeof(ObjectValueHeader), value, value_size);
+    UnsafeVariedHashMap_Remove(map, key, key_len);
+    return UnsafeVariedHashMap_Set(map, key, key_len, buf, total);
+}
+
+static void *_Object_GetValueData(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    void *ptr = UnsafeVariedHashMap_Get(map, key, key_len);
+    if (!ptr) return NULL;
+    return (uint8_t *)ptr + sizeof(ObjectValueHeader);
+}
+
+static ObjectValueHeader *_Object_GetValueHeader(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    return (ObjectValueHeader *)UnsafeVariedHashMap_Get(map, key, key_len);
+}
+
+static int _Object_HasValue(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    return UnsafeVariedHashMap_Has(map, key, key_len);
+}
+
+// ============================================================
 // Object lifecycle helpers
 // ============================================================
 
@@ -62,20 +94,44 @@ static inline ExternalReference Object_CreateRef(ClassID cid) {
 #define Self_Values (Self->data->values)
 #define Self_Refs (Self->data->references)
 
-#define Self_Get(str_key, type) \
-    ((type*)UnsafeVariedHashMap_SGet(Self_Values, str_key))
-
-#define Self_GetDeref(str_key, type) \
-    UnsafeVariedHashMap_SGetDeref(Self_Values, str_key, type)
-
 #define Self_SetValue(str_key, type, value) \
-    UnsafeVariedHashMap_SSetValue(Self_Values, str_key, type, value)
+    _Object_StoreValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       &(type){value}, sizeof(type), \
+                       BAT2(CID_, TYPE), SER_RAW, 0)
 
 #define Self_Set(str_key, value_ptr, value_size) \
-    UnsafeVariedHashMap_SSet(Self_Values, str_key, value_ptr, value_size)
+    _Object_StoreValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       value_ptr, value_size, \
+                       BAT2(CID_, TYPE), SER_RAW, 0)
+
+#define Self_SetTransient(str_key, type, value) \
+    _Object_StoreValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       &(type){value}, sizeof(type), \
+                       BAT2(CID_, TYPE), SER_SKIP, 0)
+
+#define Self_SetDeref(str_key, type, value, pointto_size) \
+    _Object_StoreValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       &(type){value}, sizeof(type), \
+                       BAT2(CID_, TYPE), SER_DEREF, (uint16_t)(pointto_size))
+
+#define Self_SetCustom(str_key, type, value, custom_ser_id, custom_arg) \
+    _Object_StoreValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       &(type){value}, sizeof(type), \
+                       BAT2(CID_, TYPE), (uint16_t)(custom_ser_id), (uint16_t)(custom_arg))
+
+#define Self_Get(str_key, type) \
+    ((type*)_Object_GetValueData(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key)))
+
+#define Self_GetDeref(str_key, type) ({ \
+    void *_sgd_ptr = _Object_GetValueData(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key)); \
+    _sgd_ptr ? *(type*)_sgd_ptr : (type){0}; \
+})
 
 #define Self_Has(str_key) \
-    UnsafeVariedHashMap_SHas(Self_Values, str_key)
+    _Object_HasValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+
+#define Self_GetHeader(str_key) \
+    _Object_GetValueHeader(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 
 // ============================================================
 // Self_ reference macros

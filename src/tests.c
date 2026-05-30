@@ -14,6 +14,7 @@
 #include "tests/UtilsTests.h"
 #include "tests/ClassTests.h"
 #include "tests/SelfTests.h"
+#include "tests/SerializationTests.h"
 #include "tests/ByteStreamTests.h"
 
 int main(void) {
@@ -29,6 +30,7 @@ int main(void) {
     run_utils_tests();
     run_class_tests();
     run_self_tests();
+    run_serialization_tests();
     run_bytestream_tests();
 
     LOG_INFO("=== Results: %d/%d passed ===", tests_passed, tests_run);

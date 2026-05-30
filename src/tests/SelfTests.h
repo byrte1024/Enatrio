@@ -317,7 +317,7 @@ static void test_self_counter_create_inits_zero(void) {
     TEST("self: Counter SELF_Create initializes count to 0");
     TempObjectReference obj = Object_Create(CID_Counter);
     ASSERT(obj->data != NULL);
-    int *count = (int*)UnsafeVariedHashMap_SGet(obj->data->values, "count");
+    int *count = (int*)_Object_GetValueData(obj->data->values, "count", 5);
     ASSERT(count != NULL);
     ASSERT(*count == 0);
     Object_Destroy(obj);
