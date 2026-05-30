@@ -31,7 +31,7 @@ int main() {
   }, {});
 
   DISPATCH(CID_Window, MID_Window_SetTargetFPS, {
-    Payload_SetValue(msg, "FPS", int, 60);
+    Payload_SetValue(msg, "FPS", int, 120);
   }, {});
 
   while (!WindowShouldClose()) {

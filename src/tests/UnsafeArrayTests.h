@@ -187,6 +187,46 @@ static void test_array_log_callback(void) {
     PASS();
 }
 
+static void test_array_create_zero_capacity(void) {
+    TEST("array: create with zero capacity");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 0);
+    ASSERT(arr != NULL);
+    ASSERT(arr->capacity >= 1);
+    int v = 42;
+    int rc = UnsafeArray_Add(arr, &v);
+    ASSERT(rc == 0);
+    ASSERT(arr->count == 1);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 42);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_add_returns_int(void) {
+    TEST("array: Add returns 0 on success");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 4);
+    int v = 10;
+    int rc = UnsafeArray_Add(arr, &v);
+    ASSERT(rc == 0);
+    v = 20;
+    rc = UnsafeArray_Add(arr, &v);
+    ASSERT(rc == 0);
+    ASSERT(arr->count == 2);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_grow_preserves_data(void) {
+    TEST("array: grow preserves data across reallocs");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 2);
+    for (int i = 0; i < 100; i++) UnsafeArray_Add(arr, &i);
+    ASSERT(arr->count == 100);
+    for (int i = 0; i < 100; i++) {
+        ASSERT(UnsafeArray_GetDeref(arr, (uint32_t)i, int) == i);
+    }
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
 static void run_unsafe_array_tests(void) {
     LOG_INFO("=== UnsafeArray Tests ===");
     test_array_create_destroy();
@@ -203,4 +243,7 @@ static void run_unsafe_array_tests(void) {
     test_array_large_elements();
     test_array_logf();
     test_array_log_callback();
+    test_array_create_zero_capacity();
+    test_array_add_returns_int();
+    test_array_grow_preserves_data();
 }

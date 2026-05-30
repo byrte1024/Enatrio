@@ -635,6 +635,38 @@ static void test_class_payload_dispatch_roundtrip(void) {
     PASS();
 }
 
+// -- Security-hardening tests --
+
+static void test_class_dispatch_null_data(void) {
+    TEST("class: dispatch with NULL data returns NO_PAYLOAD");
+    // Need classes registered first -- they should be from earlier tests
+    MessagePayload p = {0};
+    p.cid_target = CID_Calculator;
+    memcpy(p.mid, MID_Calculator_Add, sizeof(MessageID));
+    p.data = NULL;
+    DispatchMessage(&p);
+    ASSERT(p.result == MESSAGE_RESULT_NO_PAYLOAD);
+    PASS();
+}
+
+static void test_class_dispatch_untyped(void) {
+    TEST("class: dispatch to CID_Untyped returns INVALID_CID");
+    MessagePayload msg = PreparePayload(CID_Untyped, MID_Calculator_Add);
+    DispatchMessage(&msg);
+    ASSERT(msg.result == MESSAGE_RESULT_INVALID_CID);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_dispatch_unregistered(void) {
+    TEST("class: dispatch to unregistered CID 0xFFFF returns INVALID_CID");
+    MessagePayload msg = PreparePayload(0xFFFF, MID_Calculator_Add);
+    DispatchMessage(&msg);
+    ASSERT(msg.result == MESSAGE_RESULT_INVALID_CID);
+    FreePayload(&msg);
+    PASS();
+}
+
 // -- Runner --
 
 static void run_class_tests(void) {
@@ -695,6 +727,11 @@ static void run_class_tests(void) {
     test_class_dispatch_unsupported_mid();
     test_class_dispatch_empty_mid();
     test_class_dispatch_null_payload();
+
+    LOG_INFO("=== Security-Hardening Tests ===");
+    test_class_dispatch_null_data();
+    test_class_dispatch_untyped();
+    test_class_dispatch_unregistered();
 
     LOG_INFO("=== Payload Macro Tests ===");
     test_class_payload_initial_state();

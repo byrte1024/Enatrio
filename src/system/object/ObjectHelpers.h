@@ -82,17 +82,27 @@ static inline ExternalReference Object_CreateRef(ClassID cid) {
 // ============================================================
 
 #define Self_RefFrom(str_key, ext_ref) do { \
+    if (UnsafeHashMap_SHas(Self_Refs, str_key)) { \
+        ObjectReference *_old = (ObjectReference*)UnsafeHashMap_SGet(Self_Refs, str_key); \
+        ObjectContainer_UnRef_Internal(_old); \
+        UnsafeHashMap_SRemove(Self_Refs, str_key); \
+    } \
     ObjectReference _sr_ref = ObjectContainer_InternalRef_From_External(ext_ref); \
     UnsafeHashMap_SSet(Self_Refs, str_key, &_sr_ref); \
 } while (0)
 
 #define Self_RefFromTemp(str_key, tref) do { \
+    if (UnsafeHashMap_SHas(Self_Refs, str_key)) { \
+        ObjectReference *_old = (ObjectReference*)UnsafeHashMap_SGet(Self_Refs, str_key); \
+        ObjectContainer_UnRef_Internal(_old); \
+        UnsafeHashMap_SRemove(Self_Refs, str_key); \
+    } \
     ObjectReference _sr_ref = ObjectContainer_InternalRef_From_Temp(tref); \
     UnsafeHashMap_SSet(Self_Refs, str_key, &_sr_ref); \
 } while (0)
 
 #define Self_GetRef(str_key) \
-    ObjectContainer_TempFrom(*(ObjectReference*)UnsafeHashMap_SGet(Self_Refs, str_key))
+    (Self_HasRef(str_key) ? ObjectContainer_TempFrom(*(ObjectReference*)UnsafeHashMap_SGet(Self_Refs, str_key)) : NULL)
 
 #define Self_HasRef(str_key) \
     UnsafeHashMap_SHas(Self_Refs, str_key)
@@ -106,6 +116,11 @@ static inline ExternalReference Object_CreateRef(ClassID cid) {
 
 static inline void Object_StoreRef(TempObjectReference obj, const char *key, uint32_t key_len, TempObjectReference target) {
     if (obj == NULL || obj->data == NULL || target == NULL) return;
+    if (UnsafeHashMap_Has(obj->data->references, key, key_len)) {
+        ObjectReference *old = (ObjectReference*)UnsafeHashMap_Get(obj->data->references, key, key_len);
+        ObjectContainer_UnRef_Internal(old);
+        UnsafeHashMap_Remove(obj->data->references, key, key_len);
+    }
     ObjectReference iref = ObjectContainer_InternalRef_From_Temp(target);
     UnsafeHashMap_Set(obj->data->references, key, key_len, &iref);
 }

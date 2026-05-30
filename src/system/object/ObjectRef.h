@@ -51,6 +51,7 @@ static inline void ObjectContainer_UnRef_Internal(ObjectReference* ref) {
     ObjectReference obj = *ref;
     if (obj == NULL) { LOG_ERROR("Cannot UNREF an UNREF'd REF"); return; }
 
+    if (obj->internal_refs <= 0) { LOG_ERROR("internal_refs underflow on UnRef"); return; }
     obj->internal_refs--;
     *ref = NULL;
 
@@ -70,6 +71,9 @@ static inline void ObjectContainer_UnRef_Internal(ObjectReference* ref) {
 // references that trigger further GC. Without this flag, the GC
 // would re-enter itself and corrupt its own worklist/visited sets.
 inline bool _gc_running = false;
+
+#define _GC_MAX_RECURSION_DEPTH 64
+inline int _gc_recursion_depth = 0;
 
 static int _gc_is_visited(UnsafeArray *visited, TempObjectReference target) {
     for (uint32_t i = 0; i < visited->count; i++) {
@@ -106,11 +110,23 @@ static void _gc_add_neighbors(UnsafeArray *worklist, UnsafeArray *visited, TempO
 
 static void _ObjectContainer_TryCollectCycle(TempObjectReference root) {
     if (root == NULL || root->data == NULL) return;
+    if (_gc_recursion_depth >= _GC_MAX_RECURSION_DEPTH) {
+        LOG_WARNING("GC recursion depth limit reached, deferring collection");
+        return;
+    }
     if (_gc_running) return;
     _gc_running = true;
+    _gc_recursion_depth++;
 
     UnsafeArray *worklist = UnsafeArray_Create(sizeof(TempObjectReference), 16);
     UnsafeArray *visited = UnsafeArray_Create(sizeof(TempObjectReference), 16);
+    if (!worklist || !visited) {
+        if (worklist) UnsafeArray_Destroy(worklist);
+        if (visited) UnsafeArray_Destroy(visited);
+        _gc_running = false;
+        _gc_recursion_depth--;
+        return;
+    }
 
     UnsafeArray_Add(worklist, &root);
     UnsafeArray_Add(visited, &root);
@@ -146,6 +162,7 @@ static void _ObjectContainer_TryCollectCycle(TempObjectReference root) {
         // Pass 2: tear down data, scanning for external targets first
         for (uint32_t i = 0; i < visited->count; i++) {
             TempObjectReference node = *(TempObjectReference*)UnsafeArray_Get(visited, i);
+            if (!_gc_is_registered(node)) continue;
             if (node->data != NULL) {
                 UnsafeHashMap *refs = node->data->references;
                 for (uint32_t b = 0; b < refs->bucket_count; b++) {
@@ -178,6 +195,7 @@ static void _ObjectContainer_TryCollectCycle(TempObjectReference root) {
         // Pass 3: unregister and free containers
         for (uint32_t i = 0; i < visited->count; i++) {
             TempObjectReference node = *(TempObjectReference*)UnsafeArray_Get(visited, i);
+            if (!_gc_is_registered(node)) continue;
             node->internal_refs = 0;
             node->external_refs = 0;
             node->cid = CID_Untyped;
@@ -189,6 +207,7 @@ static void _ObjectContainer_TryCollectCycle(TempObjectReference root) {
         UnsafeArray_Destroy(worklist);
         UnsafeArray_Destroy(visited);
         _gc_running = false;
+        _gc_recursion_depth--;
 
         for (uint32_t i = 0; i < orphan_candidates->count; i++) {
             TempObjectReference candidate = *(TempObjectReference*)UnsafeArray_Get(orphan_candidates, i);
@@ -205,6 +224,7 @@ static void _ObjectContainer_TryCollectCycle(TempObjectReference root) {
     UnsafeArray_Destroy(worklist);
     UnsafeArray_Destroy(visited);
     _gc_running = false;
+    _gc_recursion_depth--;
 }
 
 static inline void ObjectContainer_UnRef_External(ExternalReference* ref) {
@@ -212,6 +232,7 @@ static inline void ObjectContainer_UnRef_External(ExternalReference* ref) {
     ExternalReference obj = *ref;
     if (obj == NULL) { LOG_ERROR("Cannot UNREF an UNREF'd REF"); return; }
 
+    if (obj->external_refs <= 0) { LOG_ERROR("external_refs underflow on UnRef"); return; }
     obj->external_refs--;
     *ref = NULL;
 

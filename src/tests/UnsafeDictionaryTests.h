@@ -305,6 +305,26 @@ static void test_dict_remove_reinsert_many(void) {
     PASS();
 }
 
+static void test_dict_getderef_missing_key(void) {
+    TEST("dict: GetDeref on missing key returns 0");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    UnsafeDictionary_SetValue(dict, "a", 1, int, 42);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "b", 1, int) == 0);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_set_duplicate_key(void) {
+    TEST("dict: Set same key twice returns -1 on second call");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v1 = 10, v2 = 20;
+    ASSERT(UnsafeDictionary_Set(dict, "dup", 3, &v1) == 0);
+    ASSERT(UnsafeDictionary_Set(dict, "dup", 3, &v2) == -1);
+    ASSERT(UnsafeDictionary_GetDeref(dict, "dup", 3, int) == 10);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
 static void run_unsafe_dictionary_tests(void) {
     LOG_INFO("=== UnsafeDictionary Tests ===");
     test_dict_create_destroy();
@@ -327,4 +347,6 @@ static void run_unsafe_dictionary_tests(void) {
     test_dict_string_macros();
     test_dict_remove_reinsert_reuses_slot();
     test_dict_remove_reinsert_many();
+    test_dict_getderef_missing_key();
+    test_dict_set_duplicate_key();
 }

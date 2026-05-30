@@ -315,6 +315,45 @@ static void test_hashmap_remove_reinsert_many(void) {
     PASS();
 }
 
+static void test_hashmap_getderef_missing_key(void) {
+    TEST("hashmap: GetDeref on missing key returns 0");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    UnsafeHashMap_SetValue(map, "a", 1, int, 42);
+    ASSERT(UnsafeHashMap_GetDeref(map, "b", 1, int) == 0);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hashmap_set_duplicate_key(void) {
+    TEST("hashmap: Set same key twice returns -1 on second call");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 10, v2 = 20;
+    ASSERT(UnsafeHashMap_Set(map, "dup", 3, &v1) == 0);
+    ASSERT(UnsafeHashMap_Set(map, "dup", 3, &v2) == -1);
+    ASSERT(UnsafeHashMap_GetDeref(map, "dup", 3, int) == 10);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hashmap_create_null_on_zero(void) {
+    TEST("hashmap: Create with zero capacity does not crash");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 0);
+    if (map != NULL) {
+        UnsafeHashMap_Destroy(map);
+    }
+    PASS();
+}
+
+static void test_varied_hashmap_getderef_missing_key(void) {
+    TEST("varied hashmap: GetDeref on missing key returns 0");
+    UnsafeVariedHashMap *map = UnsafeVariedHashMap_Create(8);
+    int val = 42;
+    UnsafeVariedHashMap_Set(map, "a", 1, &val, sizeof(int));
+    ASSERT(UnsafeVariedHashMap_GetDeref(map, "b", 1, int) == 0);
+    UnsafeVariedHashMap_Destroy(map);
+    PASS();
+}
+
 static void run_unsafe_hashmap_tests(void) {
     LOG_INFO("=== UnsafeHashMap Tests ===");
     test_hashmap_create_destroy();
@@ -338,4 +377,8 @@ static void run_unsafe_hashmap_tests(void) {
     test_hashmap_collision_chain();
     test_hashmap_remove_reinsert_reuses_slot();
     test_hashmap_remove_reinsert_many();
+    test_hashmap_getderef_missing_key();
+    test_hashmap_set_duplicate_key();
+    test_hashmap_create_null_on_zero();
+    test_varied_hashmap_getderef_missing_key();
 }

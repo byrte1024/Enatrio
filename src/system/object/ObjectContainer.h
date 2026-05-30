@@ -234,8 +234,7 @@ static void ObjectContainer_EmptyFilledTyped(TempObjectReference container){
     }
     DispatchMessage(&payload);
     if(!MESSAGE_RESULT_ISOK(payload.result)){
-        LOG_ERROR("SELF_Destroy failed");
-        return;
+        LOG_WARNING("SELF_Destroy returned %s, proceeding with cleanup", MESSAGE_RESULT_NAME(payload.result));
     }
     FreePayload(&payload);
 

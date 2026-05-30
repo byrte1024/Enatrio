@@ -114,7 +114,7 @@ typedef struct ClassDefinition {
 } ClassDefinition;
 
 
-inline ClassDefinition ClassDefinitions[CLASSID_MAX] = { 0 };
+inline ClassDefinition ClassDefinitions[CLASSID_MAX + 1] = { 0 };
 
 // Gate prevents late registration from corrupting running dispatch --
 // once classes are locked in, the dispatch table is stable and safe to
@@ -160,7 +160,7 @@ static void RegisterClass(ClassDefinition def) {
         return;
     }
 
-    for(int i = 0; i < CLASSID_MAX; i++) {
+    for(int i = 0; i < CLASSID_MAX + 1; i++) {
         if(strcmp(ClassDefinitions[i].classname, def.classname) == 0) {
             LOG_ERROR("Class name %s is already registered.", def.classname);
             return;
@@ -206,6 +206,11 @@ static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
     if(!CLASSID_ISREGISTERED(payload->cid_target)){
         LOG_ERROR("Class ID %d is not registered.", payload->cid_target);
         payload->result = MESSAGE_RESULT_INVALID_CID;
+        return payload;
+    }
+    if (payload->data == NULL) {
+        LOG_ERROR("Payload data is NULL (allocation failed?).");
+        payload->result = MESSAGE_RESULT_NO_PAYLOAD;
         return payload;
     }
 

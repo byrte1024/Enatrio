@@ -32,6 +32,7 @@ static UnsafeDictNode UnsafeDictNode_Empty(void) {
 
 static UnsafeDictionary *UnsafeDictionary_Create(uint32_t element_size, uint32_t capacity) {
     UnsafeDictionary *dict = (UnsafeDictionary *)malloc(sizeof(UnsafeDictionary));
+    if (!dict) return NULL;
     dict->values = UnsafeArray_Create(element_size, capacity);
     dict->nodes = UnsafeArray_Create(sizeof(UnsafeDictNode), 64);
     dict->free_list = UnsafeArray_Create(sizeof(int32_t), 8);
@@ -130,8 +131,10 @@ static int UnsafeDictionary_Remove(UnsafeDictionary *dict, const void *key, uint
     return 0;
 }
 
-#define UnsafeDictionary_GetDeref(dict, key, key_len, type) \
-    (*(type *)UnsafeDictionary_Get(dict, key, key_len))
+#define UnsafeDictionary_GetDeref(dict, key, key_len, type) ({ \
+    void *_ud_gd_ptr = UnsafeDictionary_Get(dict, key, key_len); \
+    _ud_gd_ptr ? *(type *)_ud_gd_ptr : (type){0}; \
+})
 
 #define UnsafeDictionary_SetValue(dict, key, key_len, type, value) \
     UnsafeDictionary_Set(dict, key, key_len, &(type){value})
@@ -361,6 +364,7 @@ typedef struct UnsafeVariedDictionary {
 
 static UnsafeVariedDictionary *UnsafeVariedDictionary_Create(uint32_t capacity) {
     UnsafeVariedDictionary *dict = (UnsafeVariedDictionary *)malloc(sizeof(UnsafeVariedDictionary));
+    if (!dict) return NULL;
     dict->entries = UnsafeArray_Create(sizeof(UnsafeVariedEntry), capacity);
     dict->data = UnsafeArray_Create(1, capacity * 8);
     dict->nodes = UnsafeArray_Create(sizeof(UnsafeDictNode), 64);
@@ -521,8 +525,10 @@ static void UnsafeVariedDictionary_ForEach(UnsafeVariedDictionary *dict, UnsafeV
     _UnsafeVariedDictionary_ForEachWalk(dict, 0, key_buf, 0, fn);
 }
 
-#define UnsafeVariedDictionary_GetDeref(dict, key, key_len, type) \
-    (*(type *)UnsafeVariedDictionary_Get(dict, key, key_len))
+#define UnsafeVariedDictionary_GetDeref(dict, key, key_len, type) ({ \
+    void *_uvd_gd_ptr = UnsafeVariedDictionary_Get(dict, key, key_len); \
+    _uvd_gd_ptr ? *(type *)_uvd_gd_ptr : (type){0}; \
+})
 
 #define UnsafeVariedDictionary_SetValue(dict, key, key_len, type, value) \
     UnsafeVariedDictionary_Set(dict, key, key_len, &(type){value}, sizeof(type))

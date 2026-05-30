@@ -1518,6 +1518,68 @@ static void test_gc_sweep_idempotent(void) {
 }
 
 // ============================================================
+// Security-hardening tests
+// ============================================================
+
+static void test_self_ref_missing_key(void) {
+    TEST("self: GetRef on missing key returns NULL");
+    BeginClassRegistrations();
+    RegisterClass(Counter_ClassDef());
+    EndClassRegistrations();
+    ExternalReference obj = Object_CreateRef(CID_Counter);
+    ASSERT(obj != NULL);
+    // References hashmap should not have "nonexistent"
+    void *ptr = UnsafeHashMap_SGet(obj->data->references, "nonexistent");
+    ASSERT(ptr == NULL);
+    ObjectContainer_UnRef_External(&obj);
+    PASS();
+}
+
+static void test_self_ref_overwrite_unrefs_old(void) {
+    TEST("self: ref overwrite unrefs old target");
+    BeginClassRegistrations();
+    RegisterClass(Counter_ClassDef());
+    EndClassRegistrations();
+    ExternalReference a = Object_CreateRef(CID_Counter);
+    ExternalReference b = Object_CreateRef(CID_Counter);
+    ExternalReference c = Object_CreateRef(CID_Counter);
+    ASSERT(a && b && c);
+
+    int b_internal_before = b->internal_refs;
+    Object_SStoreRef(ObjectContainer_TempFrom(a), "target", ObjectContainer_TempFrom(b));
+    ASSERT(b->internal_refs == b_internal_before + 1);
+
+    // Overwrite "target" with c -- should unref b
+    Object_SStoreRef(ObjectContainer_TempFrom(a), "target", ObjectContainer_TempFrom(c));
+    ASSERT(b->internal_refs == b_internal_before);
+    ASSERT(c->internal_refs == 1);
+
+    ObjectContainer_UnRef_External(&a);
+    ObjectContainer_UnRef_External(&b);
+    ObjectContainer_UnRef_External(&c);
+    PASS();
+}
+
+static void test_self_unref_underflow_guard(void) {
+    TEST("self: UnRef underflow is guarded");
+    BeginClassRegistrations();
+    RegisterClass(Counter_ClassDef());
+    EndClassRegistrations();
+    ExternalReference obj = Object_CreateRef(CID_Counter);
+    ASSERT(obj != NULL);
+    // Artificially set external_refs to 0 to test underflow guard
+    obj->external_refs = 0;
+    // This should log an error but not crash or go negative
+    // The underflow guard returns early before decrementing and before setting *ref = NULL
+    ObjectContainer_UnRef_External(&obj);
+    ASSERT(obj != NULL);
+    // Clean up: restore refs and properly destroy
+    obj->external_refs = 1;
+    ObjectContainer_UnRef_External(&obj);
+    PASS();
+}
+
+// ============================================================
 // Runner
 // ============================================================
 
@@ -1622,6 +1684,11 @@ static void run_self_tests(void) {
     test_gc_exact_chain_a_b_c_exact_counts();
     test_gc_exact_diamond_shared_leaf_counts();
     test_gc_sweep_idempotent();
+
+    LOG_INFO("=== Security-Hardening Tests ===");
+    test_self_ref_missing_key();
+    test_self_ref_overwrite_unrefs_old();
+    test_self_unref_underflow_guard();
 
     test_gc_sweep_after_all_tests();
 }

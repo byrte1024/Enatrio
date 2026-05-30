@@ -13,11 +13,14 @@ typedef struct UnsafeArray {
 } UnsafeArray;
 
 static UnsafeArray *UnsafeArray_Create(uint32_t element_size, uint32_t capacity) {
+    if (capacity == 0) capacity = 1;
     UnsafeArray *arr = (UnsafeArray *)malloc(sizeof(UnsafeArray));
+    if (!arr) return NULL;
+    arr->data = (uint8_t *)malloc((size_t)capacity * element_size);
+    if (!arr->data) { free(arr); return NULL; }
     arr->element_size = element_size;
     arr->capacity = capacity;
     arr->count = 0;
-    arr->data = (uint8_t *)malloc((size_t)capacity * element_size);
     return arr;
 }
 
@@ -26,23 +29,34 @@ static void UnsafeArray_Destroy(UnsafeArray *arr) {
     free(arr);
 }
 
+// Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
 static void *UnsafeArray_Get(UnsafeArray *arr, uint32_t index) {
     return arr->data + (size_t)index * arr->element_size;
 }
 
+// Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
 static void UnsafeArray_Set(UnsafeArray *arr, uint32_t index, const void *value) {
     memcpy(arr->data + (size_t)index * arr->element_size, value, arr->element_size);
 }
 
-static void UnsafeArray_Grow(UnsafeArray *arr) {
-    arr->capacity *= 2;
-    arr->data = (uint8_t *)realloc(arr->data, (size_t)arr->capacity * arr->element_size);
+static int _UnsafeArray_Grow(UnsafeArray *arr) {
+    uint32_t new_cap = arr->capacity;
+    if (new_cap > UINT32_MAX / 2) new_cap = UINT32_MAX;
+    else new_cap *= 2;
+    uint8_t *newbuf = (uint8_t *)realloc(arr->data, (size_t)new_cap * arr->element_size);
+    if (!newbuf) return -1;
+    arr->data = newbuf;
+    arr->capacity = new_cap;
+    return 0;
 }
 
-static void UnsafeArray_Add(UnsafeArray *arr, const void *value) {
-    if (arr->count >= arr->capacity) UnsafeArray_Grow(arr);
+static int UnsafeArray_Add(UnsafeArray *arr, const void *value) {
+    if (arr->count >= arr->capacity) {
+        if (_UnsafeArray_Grow(arr) != 0) return -1;
+    }
     memcpy(arr->data + (size_t)arr->count * arr->element_size, value, arr->element_size);
     arr->count++;
+    return 0;
 }
 
 // O(1) removal by swapping with the last element -- use when order does not matter.
@@ -73,6 +87,7 @@ static void UnsafeArray_Clear(UnsafeArray *arr) {
     arr->count = 0;
 }
 
+// Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
 #define UnsafeArray_GetDeref(arr, index, type) (*(type *)UnsafeArray_Get(arr, index))
 
 #define UnsafeArray_SetValue(arr, index, type, value) \
