@@ -1,0 +1,8 @@
+build/
+*.log
+*.o
+*.exe
+lib/raylib/lib/
+.claude
+compile_commands.json
+.cache

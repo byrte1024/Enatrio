@@ -1,0 +1,14 @@
+CompileFlags:
+  Add:
+    - -Wall
+    - -Wextra
+    - --std=gnu23
+
+Diagnostics:
+  UnusedIncludes: Strict
+  Suppress:
+    - inline_non_function
+    - typecheck_invalid_lvalue_addrof
+    - expected_lparen_after_type
+  ClangTidy:
+    Add: [performance-*, modernize-*]
