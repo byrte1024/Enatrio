@@ -443,6 +443,144 @@ nodes and references.
 
 ---
 
+## Serialization
+
+### Include
+
+```c
+#include "system/object/Serialization.h"
+```
+
+### Overview
+
+The serialization system persists entire object graphs -- values, references,
+and topology -- to a ByteStream or .cob file. It handles circular references,
+multiple roots, and arbitrary value types through a registry of
+serialize/deserialize function pairs.
+
+### Serialization Function Registry
+
+Every value stored in an object carries a `ser_id` that identifies which
+serialize/deserialize function pair to use. Built-in IDs:
+
+| ID | Name | Behavior | ser_arg usage |
+|---|---|---|---|
+| 0 | `SER_RAW` | Copy bytes as-is (default) | unused |
+| 1 | `SER_SKIP` | Transient -- not serialized | unused |
+| 2 | `SER_DEREF` | Dereference pointer, copy pointed-to data | pointed-to size in bytes |
+| 3 | `SER_STRING` | Follow char*, serialize string + null terminator | unused |
+
+User IDs 16-255 are available for custom handlers.
+
+### Registering Custom Handlers
+
+```c
+void *my_encrypt(const void *data, uint32_t size, uint16_t arg, uint32_t *out_size) {
+    // transform data for storage
+}
+void *my_decrypt(const void *data, uint32_t size, uint16_t arg, uint32_t *out_size) {
+    // reconstruct from stored data
+}
+
+#define SER_ENCRYPTED 16
+Ser_Register(SER_ENCRYPTED, my_encrypt, my_decrypt, "Encrypted");
+```
+
+Works like class registration -- each ID can only be registered once. IDs below
+SER_USER_START (16) are reserved.
+
+### Storing Values with Serialization Metadata
+
+```c
+Self_SetValue("health", int, 100);                          // SER_RAW (default)
+Self_SetTransient("frame_cache", int, 0);                   // SER_SKIP
+Self_SetDeref("name", char*, name_ptr, 64);                 // SER_DEREF, arg=64
+Self_SetCustom("secret", MyData, data, SER_ENCRYPTED, 0);   // custom handler
+```
+
+### Serializing Object Graphs
+
+```c
+// Serialize all objects reachable from roots
+ByteStream *stream = Object_Serialize(roots, root_count);
+
+// Deserialize -- returns array of ExternalReferences (caller frees array)
+int loaded_count;
+ExternalReference *loaded = Object_Deserialize(stream, &loaded_count);
+
+// File convenience wrappers (.cob files)
+Object_SaveToFile("save.cob", roots, root_count);
+ExternalReference *loaded = Object_LoadFromFile("save.cob", &loaded_count);
+```
+
+### How Serialization Works
+
+**Serialize:**
+1. BFS from roots to discover all reachable objects
+2. Assign each a uint32_t serialization ID
+3. For each value: call the registered serialize function (based on ser_id),
+   write the transformed bytes
+4. For each reference: replace the pointer with the target's serialization ID
+5. SER_SKIP values are omitted entirely
+
+**Deserialize (three phases):**
+1. Create all objects up-front (Ghost -> Type -> Fill via SELF_Create)
+2. Restore values -- deserialize function reconstructs bytes, overwrites
+   SELF_Create defaults
+3. Restore references -- resolve serialization IDs back to pointers using the
+   ID map
+
+Circular references work because all objects exist before any references are
+wired.
+
+### .cob File Format
+
+```
+ECOB magic (4 bytes)
+version (uint32_t)
+object_count (uint32_t)
+root_count (uint32_t)
+
+[Root table]
+  per root: serialization_id, external_refs
+
+[Object table]
+  per object:
+    serialization_id, class_id
+    value_count
+    per value: key_len, key, owner_cid, ser_id, ser_arg, data_size, data
+    ref_count
+    per ref: key_len, key, target_serialization_id
+```
+
+### Security
+
+All values read from .cob files are validated before use:
+- object_count and root_count capped at SER_MAX_OBJECTS (1M)
+- value_count and ref_count capped at SER_MAX_VALUES_PER_OBJECT (64K)
+- key_len capped at SER_MAX_KEY_LEN (256)
+- data_size capped at SER_MAX_DATA_SIZE (1MB)
+- ser_id bounds-checked against object_count
+- target_id bounds-checked against object_count
+- Stream truncation detected via ByteStream_Remaining checks
+- All limits are configurable via #define before including the header
+
+See `system/HARD.md` for the full list of configurable limits.
+
+### SELF_Serialize / SELF_Deserialize Hooks
+
+Two optional SELF messages for classes that need custom serialization logic:
+
+- `MID_Default_SELF_Serialize` -- dispatched before reading values. Convert
+  ephemeral state into serializable form.
+- `MID_Default_SELF_Deserialize` -- dispatched after values and refs are
+  restored. Reconstruct derived state.
+
+Classes that only store plain values (ints, floats, structs via SER_RAW) do not
+need these hooks.
+
+---
+
 ## ObjectContainer Struct
 
 ```c

@@ -136,6 +136,19 @@ static SerEntry *Ser_Get(uint16_t id) {
 #define _SER_MAGIC_3 'B'
 #define _SER_VERSION 1
 
+#ifndef SER_MAX_OBJECTS
+#define SER_MAX_OBJECTS (1024u * 1024u)
+#endif
+#ifndef SER_MAX_VALUES_PER_OBJECT
+#define SER_MAX_VALUES_PER_OBJECT (64u * 1024u)
+#endif
+#ifndef SER_MAX_KEY_LEN
+#define SER_MAX_KEY_LEN 256
+#endif
+#ifndef SER_MAX_DATA_SIZE
+#define SER_MAX_DATA_SIZE (1024u * 1024u)
+#endif
+
 // ============================================================
 // Serialization helpers
 // ============================================================
@@ -301,9 +314,52 @@ static ByteStream *Object_Serialize(ExternalReference *roots, int root_count) {
 // Object_Deserialize
 // ============================================================
 
+// Cleanup helper for failed deserialization
+static void _deser_cleanup(TempObjectReference *id_map, uint32_t count,
+                            uint32_t *root_ids, int32_t *root_ext_refs) {
+    if (id_map) {
+        for (uint32_t i = 0; i < count; i++) {
+            if (id_map[i] && ObjectContainer_TotalRefs(id_map[i]) == 0) {
+                Object_Destroy(id_map[i]);
+            }
+        }
+        free(id_map);
+    }
+    free(root_ids);
+    free(root_ext_refs);
+}
+
+// Validate and skip a value/ref section, checking all sizes against stream bounds.
+// Returns 0 on success, -1 if the stream is corrupt.
+static int _deser_validate_skip_object(ByteStream *stream) {
+    uint32_t value_count = ByteStream_ReadDeref(stream, uint32_t);
+    if (value_count > SER_MAX_VALUES_PER_OBJECT) return -1;
+    for (uint32_t v = 0; v < value_count; v++) {
+        uint32_t key_len = ByteStream_ReadDeref(stream, uint32_t);
+        if (key_len > SER_MAX_KEY_LEN) return -1;
+        if (ByteStream_Remaining(stream) < key_len) return -1;
+        ByteStream_Skip(stream, key_len);
+        ByteStream_Skip(stream, sizeof(ClassID) + sizeof(uint16_t) + sizeof(uint16_t));
+        uint32_t data_size = ByteStream_ReadDeref(stream, uint32_t);
+        if (data_size > SER_MAX_DATA_SIZE) return -1;
+        if (ByteStream_Remaining(stream) < data_size) return -1;
+        ByteStream_Skip(stream, data_size);
+    }
+    uint32_t ref_count = ByteStream_ReadDeref(stream, uint32_t);
+    if (ref_count > SER_MAX_VALUES_PER_OBJECT) return -1;
+    for (uint32_t r = 0; r < ref_count; r++) {
+        uint32_t key_len = ByteStream_ReadDeref(stream, uint32_t);
+        if (key_len > SER_MAX_KEY_LEN) return -1;
+        if (ByteStream_Remaining(stream) < key_len + sizeof(uint32_t)) return -1;
+        ByteStream_Skip(stream, key_len + sizeof(uint32_t));
+    }
+    return 0;
+}
+
 static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_count) {
     _Ser_InitBuiltins();
     if (!stream || !out_root_count) return NULL;
+    *out_root_count = 0;
     ByteStream_Rewind(stream);
 
     // Read and validate header
@@ -324,6 +380,22 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
     uint32_t object_count = ByteStream_ReadDeref(stream, uint32_t);
     uint32_t root_count = ByteStream_ReadDeref(stream, uint32_t);
 
+    // #3: Cap object_count and root_count to prevent unbounded allocation
+    if (object_count > SER_MAX_OBJECTS) {
+        LOG_ERROR("Object_Deserialize: object_count %u exceeds max %u", object_count, (uint32_t)SER_MAX_OBJECTS);
+        return NULL;
+    }
+    if (root_count > SER_MAX_OBJECTS) {
+        LOG_ERROR("Object_Deserialize: root_count %u exceeds max %u", root_count, (uint32_t)SER_MAX_OBJECTS);
+        return NULL;
+    }
+
+    // #5: Check stream has enough data for the root table
+    if (ByteStream_Remaining(stream) < root_count * (sizeof(uint32_t) + sizeof(int32_t))) {
+        LOG_ERROR("Object_Deserialize: stream too short for root table");
+        return NULL;
+    }
+
     // Read root table
     uint32_t *root_ids = (uint32_t *)malloc(root_count * sizeof(uint32_t));
     int32_t *root_ext_refs = (int32_t *)malloc(root_count * sizeof(int32_t));
@@ -336,51 +408,51 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
         root_ext_refs[i] = ByteStream_ReadDeref(stream, int32_t);
     }
 
-    // Phase 1: Create all objects, skip value/ref data
-    TempObjectReference *id_map = (TempObjectReference *)malloc(object_count * sizeof(TempObjectReference));
+    // Phase 1: Create all objects, validate and skip value/ref data
+    TempObjectReference *id_map = (TempObjectReference *)calloc(object_count, sizeof(TempObjectReference));
     if (!id_map) { free(root_ids); free(root_ext_refs); return NULL; }
 
     uint32_t data_start = stream->cursor;
+    uint32_t created_count = 0;
 
     for (uint32_t i = 0; i < object_count; i++) {
+        // #5: Check minimum bytes for object header (ser_id + cid + value_count + ref_count)
+        if (ByteStream_Remaining(stream) < sizeof(uint32_t) + sizeof(uint16_t) + sizeof(uint32_t)) {
+            LOG_ERROR("Object_Deserialize: truncated at object %u", i);
+            _deser_cleanup(id_map, created_count, root_ids, root_ext_refs);
+            return NULL;
+        }
+
         uint32_t ser_id = ByteStream_ReadDeref(stream, uint32_t);
+
+        // #2: Bounds-check ser_id against object_count
+        if (ser_id >= object_count) {
+            LOG_ERROR("Object_Deserialize: ser_id %u out of range (max %u)", ser_id, object_count - 1);
+            _deser_cleanup(id_map, created_count, root_ids, root_ext_refs);
+            return NULL;
+        }
+
         uint16_t cid = ByteStream_ReadDeref(stream, uint16_t);
 
         TempObjectReference obj = Object_Create(cid);
         if (!obj) {
             LOG_ERROR("Object_Deserialize: failed to create object %u (CID 0x%04X)", ser_id, cid);
-            for (uint32_t j = 0; j < i; j++) {
-                if (id_map[j] && ObjectContainer_TotalRefs(id_map[j]) == 0) {
-                    Object_Destroy(id_map[j]);
-                }
-            }
-            free(id_map); free(root_ids); free(root_ext_refs);
+            _deser_cleanup(id_map, created_count, root_ids, root_ext_refs);
             return NULL;
         }
         id_map[ser_id] = obj;
+        created_count = i + 1;
 
-        // Skip values
-        uint32_t value_count = ByteStream_ReadDeref(stream, uint32_t);
-        for (uint32_t v = 0; v < value_count; v++) {
-            uint32_t key_len = ByteStream_ReadDeref(stream, uint32_t);
-            ByteStream_Skip(stream, key_len);
-            ByteStream_Skip(stream, sizeof(ClassID));
-            ByteStream_Skip(stream, sizeof(uint16_t));
-            ByteStream_Skip(stream, sizeof(uint16_t));
-            uint32_t data_size = ByteStream_ReadDeref(stream, uint32_t);
-            ByteStream_Skip(stream, data_size);
-        }
-
-        // Skip refs
-        uint32_t ref_count = ByteStream_ReadDeref(stream, uint32_t);
-        for (uint32_t r = 0; r < ref_count; r++) {
-            uint32_t key_len = ByteStream_ReadDeref(stream, uint32_t);
-            ByteStream_Skip(stream, key_len);
-            ByteStream_Skip(stream, sizeof(uint32_t));
+        // #7: Validate all value/ref counts and sizes before proceeding
+        if (_deser_validate_skip_object(stream) != 0) {
+            LOG_ERROR("Object_Deserialize: corrupt value/ref data at object %u", i);
+            _deser_cleanup(id_map, created_count, root_ids, root_ext_refs);
+            return NULL;
         }
     }
 
     // Phase 2: Restore values (re-read from data_start)
+    // All sizes were validated in Phase 1 so reads here are safe.
     ByteStream_Seek(stream, data_start);
 
     for (uint32_t i = 0; i < object_count; i++) {
@@ -390,8 +462,9 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
 
         uint32_t value_count = ByteStream_ReadDeref(stream, uint32_t);
         for (uint32_t v = 0; v < value_count; v++) {
+            // #1: key_len is capped by SER_MAX_KEY_LEN (validated in Phase 1)
             uint32_t key_len = ByteStream_ReadDeref(stream, uint32_t);
-            uint8_t key_buf[256];
+            uint8_t key_buf[SER_MAX_KEY_LEN];
             ByteStream_Read(stream, key_buf, key_len);
 
             ClassID owner = ByteStream_ReadDeref(stream, ClassID);
@@ -399,10 +472,18 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
             uint16_t sarg = ByteStream_ReadDeref(stream, uint16_t);
             uint32_t data_size = ByteStream_ReadDeref(stream, uint32_t);
 
+            // #6: Check malloc result
+            if (data_size == 0) {
+                // Skip zero-size values
+                continue;
+            }
             void *ser_data = malloc(data_size);
+            if (!ser_data) {
+                LOG_ERROR("Object_Deserialize: malloc failed for %u bytes", data_size);
+                continue;
+            }
             ByteStream_Read(stream, ser_data, data_size);
 
-            // Deserialize
             SerEntry *entry = Ser_Get(sid);
             void *restored = NULL;
             uint32_t restored_size = 0;
@@ -415,19 +496,18 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
             }
             free(ser_data);
 
-            if (restored && obj->data) {
+            if (restored && obj && obj->data) {
                 _Object_StoreValue(obj->data->values, key_buf, key_len,
                                    restored, restored_size, owner, sid, sarg);
             }
             if (restored) free(restored);
         }
 
-        // Skip refs (phase 3 handles them)
+        // Skip refs (phase 3)
         uint32_t ref_count = ByteStream_ReadDeref(stream, uint32_t);
         for (uint32_t r = 0; r < ref_count; r++) {
             uint32_t key_len = ByteStream_ReadDeref(stream, uint32_t);
-            ByteStream_Skip(stream, key_len);
-            ByteStream_Skip(stream, sizeof(uint32_t));
+            ByteStream_Skip(stream, key_len + sizeof(uint32_t));
         }
     }
 
@@ -444,9 +524,7 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
         for (uint32_t v = 0; v < value_count; v++) {
             uint32_t key_len = ByteStream_ReadDeref(stream, uint32_t);
             ByteStream_Skip(stream, key_len);
-            ByteStream_Skip(stream, sizeof(ClassID));
-            ByteStream_Skip(stream, sizeof(uint16_t));
-            ByteStream_Skip(stream, sizeof(uint16_t));
+            ByteStream_Skip(stream, sizeof(ClassID) + sizeof(uint16_t) + sizeof(uint16_t));
             uint32_t data_size = ByteStream_ReadDeref(stream, uint32_t);
             ByteStream_Skip(stream, data_size);
         }
@@ -455,29 +533,36 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
         uint32_t ref_count = ByteStream_ReadDeref(stream, uint32_t);
         for (uint32_t r = 0; r < ref_count; r++) {
             uint32_t key_len = ByteStream_ReadDeref(stream, uint32_t);
-            uint8_t key_buf[256];
+            uint8_t key_buf[SER_MAX_KEY_LEN];
             ByteStream_Read(stream, key_buf, key_len);
             uint32_t target_id = ByteStream_ReadDeref(stream, uint32_t);
 
-            if (target_id < object_count && obj->data) {
-                TempObjectReference target = id_map[target_id];
-                if (UnsafeHashMap_Has(obj->data->references, key_buf, key_len)) {
-                    ObjectReference *old = (ObjectReference *)UnsafeHashMap_Get(obj->data->references, key_buf, key_len);
-                    ObjectContainer_UnRef_Internal(old);
-                    UnsafeHashMap_Remove(obj->data->references, key_buf, key_len);
-                }
-                ObjectReference iref = ObjectContainer_InternalRef_From_Temp(target);
-                UnsafeHashMap_Set(obj->data->references, key_buf, key_len, &iref);
+            // #2: Bounds-check target_id
+            if (target_id >= object_count) continue;
+            if (!obj || !obj->data) continue;
+
+            TempObjectReference target = id_map[target_id];
+            if (!target) continue;
+
+            if (UnsafeHashMap_Has(obj->data->references, key_buf, key_len)) {
+                ObjectReference *old = (ObjectReference *)UnsafeHashMap_Get(obj->data->references, key_buf, key_len);
+                ObjectContainer_UnRef_Internal(old);
+                UnsafeHashMap_Remove(obj->data->references, key_buf, key_len);
             }
+            ObjectReference iref = ObjectContainer_InternalRef_From_Temp(target);
+            UnsafeHashMap_Set(obj->data->references, key_buf, key_len, &iref);
         }
     }
 
     // Phase 4: Build return array with external refs
     ExternalReference *result = (ExternalReference *)malloc(root_count * sizeof(ExternalReference));
-    if (!result) { free(id_map); free(root_ids); free(root_ext_refs); return NULL; }
+    if (!result) {
+        _deser_cleanup(id_map, object_count, root_ids, root_ext_refs);
+        return NULL;
+    }
 
     for (uint32_t i = 0; i < root_count; i++) {
-        if (root_ids[i] < object_count) {
+        if (root_ids[i] < object_count && id_map[root_ids[i]]) {
             TempObjectReference obj = id_map[root_ids[i]];
             obj->external_refs = root_ext_refs[i];
             result[i] = (ExternalReference)obj;

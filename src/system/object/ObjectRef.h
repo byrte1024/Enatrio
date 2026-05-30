@@ -72,7 +72,7 @@ static inline void ObjectContainer_UnRef_Internal(ObjectReference* ref) {
 // would re-enter itself and corrupt its own worklist/visited sets.
 inline bool _gc_running = false;
 
-#define _GC_MAX_RECURSION_DEPTH 64
+#define _GC_MAX_RECURSION_DEPTH 256
 inline int _gc_recursion_depth = 0;
 
 static int _gc_is_visited(UnsafeArray *visited, TempObjectReference target) {

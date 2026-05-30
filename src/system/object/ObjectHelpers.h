@@ -6,18 +6,24 @@
 // Value storage helpers -- prepend ObjectValueHeader to every value
 // ============================================================
 
+#define _OBJECT_VALUE_MAX_SIZE (64u * 1024u)
+
 static int _Object_StoreValue(UnsafeVariedHashMap *map, const void *key, uint32_t key_len,
                                const void *value, uint32_t value_size,
                                ClassID owner, uint16_t ser_id, uint16_t ser_arg) {
+    if (value_size > _OBJECT_VALUE_MAX_SIZE) return -1;
     uint32_t total = (uint32_t)sizeof(ObjectValueHeader) + value_size;
-    uint8_t buf[total];
+    uint8_t *buf = (uint8_t *)malloc(total);
+    if (!buf) return -1;
     ObjectValueHeader *hdr = (ObjectValueHeader *)buf;
     hdr->owner = owner;
     hdr->ser_id = ser_id;
     hdr->ser_arg = ser_arg;
     memcpy(buf + sizeof(ObjectValueHeader), value, value_size);
     UnsafeVariedHashMap_Remove(map, key, key_len);
-    return UnsafeVariedHashMap_Set(map, key, key_len, buf, total);
+    int result = UnsafeVariedHashMap_Set(map, key, key_len, buf, total);
+    free(buf);
+    return result;
 }
 
 static void *_Object_GetValueData(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {

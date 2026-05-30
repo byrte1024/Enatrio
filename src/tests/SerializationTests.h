@@ -1010,6 +1010,197 @@ static void test_ser_forward_backward_match(void) {
 }
 
 // ============================================================
+// Security tests -- crafted .cob payloads
+// ============================================================
+
+static ByteStream *_sec_make_header(uint32_t obj_count, uint32_t root_count) {
+    ByteStream *s = ByteStream_Create(128);
+    uint8_t magic[4] = { 'E', 'C', 'O', 'B' };
+    ByteStream_Write(s, magic, 4);
+    ByteStream_WriteValue(s, uint32_t, 1);
+    ByteStream_WriteValue(s, uint32_t, obj_count);
+    ByteStream_WriteValue(s, uint32_t, root_count);
+    return s;
+}
+
+static void test_ser_sec_huge_object_count(void) {
+    TEST("ser security: huge object_count rejected");
+    ByteStream *s = _sec_make_header(0xFFFFFFFF, 0);
+    int rc = 0;
+    ExternalReference *res = Object_Deserialize(s, &rc);
+    ASSERT(res == NULL);
+    ByteStream_Destroy(s);
+    PASS();
+}
+
+static void test_ser_sec_huge_root_count(void) {
+    TEST("ser security: huge root_count rejected");
+    ByteStream *s = _sec_make_header(0, 0xFFFFFFFF);
+    int rc = 0;
+    ExternalReference *res = Object_Deserialize(s, &rc);
+    ASSERT(res == NULL);
+    ByteStream_Destroy(s);
+    PASS();
+}
+
+static void test_ser_sec_ser_id_oob(void) {
+    TEST("ser security: out-of-bounds ser_id rejected");
+    BeginClassRegistrations();
+    RegisterClass(Counter_ClassDef());
+    EndClassRegistrations();
+
+    ByteStream *s = _sec_make_header(1, 1);
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, int32_t, 1);
+    // Object with ser_id = 999 (out of range for 1 object)
+    ByteStream_WriteValue(s, uint32_t, 999);
+    ByteStream_WriteValue(s, uint16_t, CID_Counter);
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, uint32_t, 0);
+
+    ByteStream_Rewind(s);
+    int rc = 0;
+    ExternalReference *res = Object_Deserialize(s, &rc);
+    ASSERT(res == NULL);
+    ByteStream_Destroy(s);
+    PASS();
+}
+
+static void test_ser_sec_key_len_overflow(void) {
+    TEST("ser security: key_len > 256 rejected");
+    BeginClassRegistrations();
+    RegisterClass(Counter_ClassDef());
+    EndClassRegistrations();
+
+    ByteStream *s = _sec_make_header(1, 1);
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, int32_t, 1);
+    // Object 0
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, uint16_t, CID_Counter);
+    // 1 value with key_len = 9999
+    ByteStream_WriteValue(s, uint32_t, 1);
+    ByteStream_WriteValue(s, uint32_t, 9999);
+    // Pad with enough junk
+    for (int i = 0; i < 2500; i++) ByteStream_WriteValue(s, uint32_t, 0);
+
+    ByteStream_Rewind(s);
+    int rc = 0;
+    ExternalReference *res = Object_Deserialize(s, &rc);
+    ASSERT(res == NULL);
+    ByteStream_Destroy(s);
+    PASS();
+}
+
+static void test_ser_sec_huge_data_size(void) {
+    TEST("ser security: data_size > SER_MAX_DATA_SIZE rejected");
+    BeginClassRegistrations();
+    RegisterClass(Counter_ClassDef());
+    EndClassRegistrations();
+
+    ByteStream *s = _sec_make_header(1, 1);
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, int32_t, 1);
+    // Object 0
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, uint16_t, CID_Counter);
+    // 1 value with valid key but huge data_size
+    ByteStream_WriteValue(s, uint32_t, 1);
+    ByteStream_WriteValue(s, uint32_t, 1);
+    uint8_t key = 'x';
+    ByteStream_Write(s, &key, 1);
+    ByteStream_WriteValue(s, uint16_t, 0);
+    ByteStream_WriteValue(s, uint16_t, SER_RAW);
+    ByteStream_WriteValue(s, uint16_t, 0);
+    ByteStream_WriteValue(s, uint32_t, 0xFFFFFFFF);
+
+    ByteStream_Rewind(s);
+    int rc = 0;
+    ExternalReference *res = Object_Deserialize(s, &rc);
+    ASSERT(res == NULL);
+    ByteStream_Destroy(s);
+    PASS();
+}
+
+static void test_ser_sec_truncated_stream(void) {
+    TEST("ser security: truncated stream rejected");
+    ByteStream *s = _sec_make_header(5, 1);
+    // Root table for 1 root
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, int32_t, 1);
+    // Only 1 object header instead of 5
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, uint16_t, 0x0010);
+    // Truncated -- no value_count
+
+    ByteStream_Rewind(s);
+    int rc = 0;
+    ExternalReference *res = Object_Deserialize(s, &rc);
+    ASSERT(res == NULL);
+    ByteStream_Destroy(s);
+    PASS();
+}
+
+static void test_ser_sec_huge_value_count(void) {
+    TEST("ser security: value_count > SER_MAX_VALUES_PER_OBJECT rejected");
+    BeginClassRegistrations();
+    RegisterClass(Counter_ClassDef());
+    EndClassRegistrations();
+
+    ByteStream *s = _sec_make_header(1, 1);
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, int32_t, 1);
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, uint16_t, CID_Counter);
+    ByteStream_WriteValue(s, uint32_t, 0xFFFFFFFF);
+
+    ByteStream_Rewind(s);
+    int rc = 0;
+    ExternalReference *res = Object_Deserialize(s, &rc);
+    ASSERT(res == NULL);
+    ByteStream_Destroy(s);
+    PASS();
+}
+
+static void test_ser_sec_target_id_oob_in_refs(void) {
+    TEST("ser security: target_id >= object_count in refs is skipped");
+    BeginClassRegistrations();
+    RegisterClass(Counter_ClassDef());
+    EndClassRegistrations();
+
+    // Create a valid serialized stream manually with 1 object, 0 values,
+    // 1 ref with target_id = 999
+    ByteStream *s = _sec_make_header(1, 1);
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, int32_t, 1);
+    // Object 0
+    ByteStream_WriteValue(s, uint32_t, 0);
+    ByteStream_WriteValue(s, uint16_t, CID_Counter);
+    ByteStream_WriteValue(s, uint32_t, 0); // 0 values
+    // 1 ref
+    ByteStream_WriteValue(s, uint32_t, 1);
+    uint32_t kl = 3;
+    ByteStream_Write(s, &kl, sizeof(uint32_t));
+    ByteStream_Write(s, "bad", 3);
+    ByteStream_WriteValue(s, uint32_t, 999); // OOB target
+
+    ByteStream_Rewind(s);
+    int rc = 0;
+    ExternalReference *res = Object_Deserialize(s, &rc);
+    // Should succeed but skip the bad ref
+    ASSERT(res != NULL);
+    ASSERT(rc == 1);
+    ASSERT(res[0] != NULL);
+    // The bad ref should not exist
+    ASSERT(!UnsafeHashMap_Has(res[0]->data->references, "bad", 3));
+
+    ObjectContainer_UnRef_External(&res[0]);
+    Object_GarbageCollect();
+    free(res);
+    PASS();
+}
+
+// ============================================================
 // Runner
 // ============================================================
 
@@ -1055,4 +1246,14 @@ static void run_serialization_tests(void) {
 
     LOG_INFO("--- Forward/Backward Byte Match ---");
     test_ser_forward_backward_match();
+
+    LOG_INFO("--- Security: Malicious .cob ---");
+    test_ser_sec_huge_object_count();
+    test_ser_sec_huge_root_count();
+    test_ser_sec_ser_id_oob();
+    test_ser_sec_key_len_overflow();
+    test_ser_sec_huge_data_size();
+    test_ser_sec_truncated_stream();
+    test_ser_sec_huge_value_count();
+    test_ser_sec_target_id_oob_in_refs();
 }
