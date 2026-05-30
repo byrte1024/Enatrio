@@ -57,6 +57,22 @@ jobs:
       - name: Build release
         run: bash ./build.sh release
 
+      - name: Upload debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: enatrio-linux-debug
+          path: |
+            build/debug/linux/Enatrio
+            build/debug/linux/assets/
+
+      - name: Upload release
+        uses: actions/upload-artifact@v4
+        with:
+          name: enatrio-linux-release
+          path: |
+            build/release/linux/Enatrio
+            build/release/linux/assets/
+
   build-windows:
     runs-on: windows-latest
     defaults:
@@ -95,6 +111,22 @@ jobs:
 
       - name: Build release
         run: bash ./build.sh release
+
+      - name: Upload debug
+        uses: actions/upload-artifact@v4
+        with:
+          name: enatrio-windows-debug
+          path: |
+            build/debug/windows/Enatrio.exe
+            build/debug/windows/assets/
+
+      - name: Upload release
+        uses: actions/upload-artifact@v4
+        with:
+          name: enatrio-windows-release
+          path: |
+            build/release/windows/Enatrio.exe
+            build/release/windows/assets/
 
   test-linux:
     runs-on: ubuntu-latest
@@ -143,9 +175,17 @@ jobs:
       - name: Build tests
         run: bash ./build.sh tests
 
+      - name: Upload test binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: enatrio-tests-linux
+          path: |
+            build/tests/linux/Enatrio
+            build/tests/linux/assets/
+
       - name: Run tests
         run: |
-          OUTPUT=$(./build/tests/Enatrio 2>&1) || true
+          OUTPUT=$(./build/tests/linux/Enatrio 2>&1) || true
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -q "FAIL"; then
             echo "::error::Tests failed"
@@ -194,9 +234,17 @@ jobs:
       - name: Build tests
         run: bash ./build.sh tests
 
+      - name: Upload test binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: enatrio-tests-windows
+          path: |
+            build/tests/windows/Enatrio.exe
+            build/tests/windows/assets/
+
       - name: Run tests
         run: |
-          OUTPUT=$(./build/tests/Enatrio.exe 2>&1) || true
+          OUTPUT=$(./build/tests/windows/Enatrio.exe 2>&1) || true
           echo "$OUTPUT"
           if echo "$OUTPUT" | grep -q "FAIL"; then
             echo "::error::Tests failed"

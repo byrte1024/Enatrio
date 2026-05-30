@@ -60,7 +60,7 @@
             "command": "bash",
             "args": [
                 "-c",
-                "./build.sh debug && ./build/debug/Enatrio"
+                "./build.sh debug && ./build/debug/linux/Enatrio"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -85,7 +85,7 @@
             "command": "bash",
             "args": [
                 "-c",
-                "./build.sh release && ./build/release/Enatrio"
+                "./build.sh release && ./build/release/linux/Enatrio"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"
@@ -135,7 +135,7 @@
             "command": "bash",
             "args": [
                 "-c",
-                "./build.sh tests && ./build/tests/Enatrio"
+                "./build.sh tests && ./build/tests/linux/Enatrio"
             ],
             "options": {
                 "cwd": "${workspaceFolder}"

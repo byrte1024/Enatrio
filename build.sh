@@ -13,10 +13,12 @@ OS_TYPE="$(uname -s)"
 
 if [ "$OS_TYPE" = "Linux" ]; then
     GCC="gcc"
+    OS_NAME="linux"
 else
     # Windows / MSYS2
     export PATH="/ucrt64/bin:$PATH"
     GCC="gcc"
+    OS_NAME="windows"
 fi
 
 BUILD_TYPE="${1:-debug}"
@@ -33,17 +35,17 @@ fi
 
 # Set build configuration
 if [ "$BUILD_TYPE" = "release" ]; then
-    BUILD_DIR="build/release"
+    BUILD_DIR="build/release/$OS_NAME"
     CFLAGS="$C_STD -O2 -DNDEBUG -DPROJECT_NAME=$PROJECT_NAME"
-    echo "Building RELEASE configuration..."
+    echo "Building RELEASE ($OS_NAME)..."
 elif [ "$BUILD_TYPE" = "tests" ]; then
-    BUILD_DIR="build/tests"
+    BUILD_DIR="build/tests/$OS_NAME"
     CFLAGS="$C_STD -g3 -O0 -DDEBUG -DINTESTING -DPROJECT_NAME=$PROJECT_NAME"
-    echo "Building TESTS configuration..."
+    echo "Building TESTS ($OS_NAME)..."
 else
-    BUILD_DIR="build/debug"
+    BUILD_DIR="build/debug/$OS_NAME"
     CFLAGS="$C_STD -g3 -O0 -DDEBUG -DPROJECT_NAME=$PROJECT_NAME"
-    echo "Building DEBUG configuration..."
+    echo "Building DEBUG ($OS_NAME)..."
 fi
 
 if [ "$OS_TYPE" = "Linux" ]; then
