@@ -198,6 +198,7 @@ static void UnsafeDictionary_ForEach(UnsafeDictionary *dict, UnsafeDictForEachFn
 
 typedef void (*UnsafeDictFormatter)(const void *value, char *buf, uint32_t buf_size);
 
+#define LINTNORE
 static void _UnsafeDictionary_PrintWalk(
     UnsafeDictionary *dict,
     int32_t node_idx,
@@ -269,6 +270,7 @@ static void _udict_pf_fn(const void *v, char *b, uint32_t s) {
     _udict_pf_esz = (uint32_t)sizeof(type); \
     UnsafeDictionary_Print(dict, _udict_pf_fn, string_keys); \
 } while (0)
+#undef LINTNORE
 
 // --- Log variants (LOG_INFO per line) ---
 

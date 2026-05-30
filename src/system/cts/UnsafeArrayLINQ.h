@@ -275,7 +275,7 @@ static UnsafeArray *UnsafeArray_Concat(UnsafeArray *a, UnsafeArray *b) {
 }
 
 // ============================================================
-//  LINQ Macros — inline expressions, no function pointers needed
+//  LINQ Macros -- inline expressions, no function pointers needed
 //
 //  Usage pattern:
 //    LINQ_WHERE(arr, int, x, x > 5 && x % 2 == 0)

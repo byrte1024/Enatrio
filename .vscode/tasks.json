@@ -209,6 +209,63 @@
             },
             "problemMatcher": [],
             "detail": "Generate compile_commands.json for clangd with C23 standard"
+        },
+        {
+            "label": "Lint (one-shot)",
+            "type": "shell",
+            "command": "uv",
+            "args": [
+                "run", "--with", "tree-sitter", "--with", "tree-sitter-c",
+                "python3", "tools/lint.py", "src/"
+            ],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "group": "test",
+            "problemMatcher": {
+                "owner": "enatrio-lint",
+                "fileLocation": ["relative", "${workspaceFolder}"],
+                "pattern": {
+                    "regexp": "^\\s*(.+?):(\\d+):(\\d+):\\s+(error|warning):\\s+(.+)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                }
+            },
+            "detail": "Run the Enatrio macro linter once"
+        },
+        {
+            "label": "Lint (watch)",
+            "type": "shell",
+            "command": "bash",
+            "args": ["tools/lint_watch.sh"],
+            "options": {
+                "cwd": "${workspaceFolder}"
+            },
+            "isBackground": true,
+            "problemMatcher": {
+                "owner": "enatrio-lint",
+                "fileLocation": ["relative", "${workspaceFolder}"],
+                "pattern": {
+                    "regexp": "^\\s*(.+?):(\\d+):(\\d+):\\s+(error|warning):\\s+(.+)$",
+                    "file": 1,
+                    "line": 2,
+                    "column": 3,
+                    "severity": 4,
+                    "message": 5
+                },
+                "background": {
+                    "activeOnStart": true,
+                    "beginsPattern": "^Enatrio lint watcher started|^\\[lint-watch\\] scan complete",
+                    "endsPattern": "^Lint:|^\\[lint-watch\\] scan complete"
+                }
+            },
+            "runOptions": {
+                "runOn": "folderOpen"
+            },
+            "detail": "Auto-lint on file changes with inline VS Code errors"
         }
     ]
 }

@@ -123,6 +123,7 @@ static void ByteStream_Clear(ByteStream *stream) {
 // Print / Log
 // ============================================================
 
+#define LINTNORE
 static void ByteStream_PrintHex(ByteStream *stream) {
     printf("ByteStream[%u/%u bytes, cursor=%u] hex {\n  ", stream->length, stream->capacity, stream->cursor);
     for (uint32_t i = 0; i < stream->length; i++) {
@@ -150,6 +151,7 @@ static void ByteStream_PrintAscii(ByteStream *stream) {
     }
     printf("\n}\n");
 }
+#undef LINTNORE
 
 static void ByteStream_LogHex(ByteStream *stream) {
     LOG_INFO("ByteStream[%u/%u bytes, cursor=%u] hex {", stream->length, stream->capacity, stream->cursor);

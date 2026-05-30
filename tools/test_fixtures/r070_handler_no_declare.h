@@ -1,0 +1,5 @@
+#pragma once
+// MESSAGE_HANDLER_BEGIN without a DECLARE_MID
+MESSAGE_HANDLER_BEGIN(Orphan)
+    int x = 1;
+MESSAGE_HANDLER_END()

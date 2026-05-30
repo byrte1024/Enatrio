@@ -4,6 +4,9 @@
 #include "../system/object/Self.h"
 #include "../system/object/ObjectGraphViz.h"
 
+// Tests deliberately inspect and manipulate ref counts to verify GC behavior.
+#define LINTNORE
+
 // ============================================================
 // Test class: Counter -- an instanced class with Self
 // Stores "count" (int) on Self, supports Increment, Decrement, GetCount, Reset
@@ -1692,3 +1695,5 @@ static void run_self_tests(void) {
 
     test_gc_sweep_after_all_tests();
 }
+
+#undef LINTNORE

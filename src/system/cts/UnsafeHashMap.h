@@ -233,6 +233,7 @@ static void UnsafeHashMap_ForEach(UnsafeHashMap *map, UnsafeHashMapForEachFn fn)
 
 typedef void (*UnsafeHashMapFormatter)(const void *value, char *buf, uint32_t buf_size);
 
+#define LINTNORE
 // string_keys=1 prints keys as strings, 0 as hex bytes.
 static void UnsafeHashMap_Print(UnsafeHashMap *map, UnsafeHashMapFormatter fmt_value, int string_keys) {
     printf("UnsafeHashMap[%u entries, %u buckets] {\n", map->entry_count, map->bucket_count);
@@ -267,6 +268,7 @@ static void _uhm_pf_fn(const void *v, char *b, uint32_t s) {
     _uhm_pf_esz = (uint32_t)sizeof(type); \
     UnsafeHashMap_Print(map, _uhm_pf_fn, string_keys); \
 } while (0)
+#undef LINTNORE
 
 // --- Log variants (LOG_INFO per line) ---
 

@@ -68,6 +68,7 @@ typedef struct {
 
 #define DECLARE_SELF_MID(msgname) DECLARE_MID(BAT2(SELF_, msgname))
 
+#define LINTNORE
 #define SELF_MESSAGE_HANDLER_BEGIN(msgname) \
     MESSAGE_HANDLER_BEGIN(BAT2(SELF_, msgname)) \
     MH_Require(Self); \
@@ -77,6 +78,8 @@ typedef struct {
     MESSAGE_HANDLER_BEGIN_EXTERN(classname, BAT2(SELF_, msgname)) \
     MH_Require(Self); \
     TempObjectReference Self = MH_GetDeref(Self, TempObjectReference);
+
+#undef LINTNORE
 
 #define SELF_CAN_RECEIVE_MID(msgname) \
     CAN_RECEIVE_MID(BAT2(SELF_, msgname))

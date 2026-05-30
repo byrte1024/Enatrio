@@ -54,10 +54,19 @@
 
 #define LOG_BUILD_INFO() do { \
     LOG_INFO("========================================"); \
-    LOG_INFO("  " BSTR(PROJECT_NAME)); \
-    LOG_INFO("  Build Hash: " BSTR(HASH)); \
+    LOG_INFO("  " BSTR(PROJECT_NAME) " (" BUILD_TYPE_STR ")"); \
+    LOG_INFO("  Platform:   " BUILD_PLATFORM); \
+    LOG_INFO("  Source Hash: " BSTR(HASH)); \
     LOG_INFO("  Build Date: " BSTR(BUILD_DAY) "/" BSTR(BUILD_MONTH) "/" BSTR(BUILD_YEAR)); \
     LOG_INFO("  Build Time: " BSTR(BUILD_HOUR) ":" BSTR(BUILD_MINUTE) ":" BSTR(BUILD_SECOND)); \
+    LOG_INFO("  Git Branch: " GIT_BRANCH); \
+    LOG_INFO("  Git Commit: " GIT_HASH); \
+    LOG_INFO("  Sources:    " BSTR(SRC_FILE_COUNT) " files, " BSTR(SRC_LINE_COUNT) " lines"); \
+    if (GIT_DIRTY) { \
+        LOG_WARNING("========================================"); \
+        LOG_WARNING("  !!! DIRTY BUILD -- UNCOMMITTED CHANGES !!!"); \
+        LOG_WARNING("========================================"); \
+    } \
     LOG_INFO("========================================"); \
 } while (0)
 
@@ -97,7 +106,9 @@ static void _log_file_callback(int logLevel, const char *text, va_list args) {
     _log_sanitize(buf, len);
 
     // Always print to stdout so raylib's own callback replacement still shows output
+#define LINTNORE
     printf("[%s] %s\n", level_str, buf);
+#undef LINTNORE
 
     if (_log_file) {
         time_t now = time(NULL);

@@ -2,6 +2,8 @@
 
 #include "ObjectContainer.h"
 
+#define LINTNORE
+
 // ============================================================
 // Reference conversions
 // ============================================================
@@ -286,3 +288,5 @@ static void Object_GarbageCollect(void) {
 
     UnsafeArray_Destroy(candidates);
 }
+
+#undef LINTNORE

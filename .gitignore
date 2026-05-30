@@ -6,3 +6,4 @@ lib/raylib/lib/
 .claude
 compile_commands.json
 .cache
+__pycache__/

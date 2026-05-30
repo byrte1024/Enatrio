@@ -90,8 +90,10 @@ static TempObjectReference ObjectContainer_CreateGhost(){
 
     container->data = NULL;
     container->cid = CID_Untyped;
+#define LINTNORE
     container->internal_refs = 0;
     container->external_refs = 0;
+#undef LINTNORE
     _ObjectRegistry_Register(container);
     return container;
 }
@@ -116,7 +118,9 @@ static void ObjectContainer_DestroyGhost(TempObjectReference container){
     }
 
     _ObjectRegistry_Unregister(container);
+#define LINTNORE
     free(container);
+#undef LINTNORE
 }
 
 static void ObjectContainer_TypeEmptyUntyped(TempObjectReference container, ClassID cid){

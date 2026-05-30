@@ -7,6 +7,20 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+
+      - name: Run linter
+        run: uv run --with tree-sitter --with tree-sitter-c python3 tools/lint.py src/
+
+      - name: Run linter tests
+        run: uv run --with tree-sitter --with tree-sitter-c python3 tools/test_lint.py
+
   build-linux:
     runs-on: ubuntu-latest
     steps:
@@ -173,7 +187,7 @@ jobs:
           cp libraylib.a $GITHUB_WORKSPACE/lib/raylib/lib/libraylib.a
 
       - name: Build tests
-        run: bash ./build.sh tests
+        run: bash ./build.sh tests --no-lint
 
       - name: Upload test binary
         uses: actions/upload-artifact@v4
@@ -232,7 +246,7 @@ jobs:
           cp libraylib.a "$GITHUB_WORKSPACE/lib/raylib/lib/libraylib.a"
 
       - name: Build tests
-        run: bash ./build.sh tests
+        run: bash ./build.sh tests --no-lint
 
       - name: Upload test binary
         uses: actions/upload-artifact@v4

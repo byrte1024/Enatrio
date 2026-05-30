@@ -95,6 +95,7 @@ static void UnsafeArray_Clear(UnsafeArray *arr) {
 
 typedef void (*UnsafeArrayFormatter)(uint32_t index, const void *element, char *buf, uint32_t buf_size);
 
+#define LINTNORE
 // Prints via a formatter callback that writes each element into buf.
 static void UnsafeArray_Print(UnsafeArray *arr, UnsafeArrayFormatter fmt) {
     char buf[256];
@@ -117,6 +118,7 @@ static void UnsafeArray_Print(UnsafeArray *arr, UnsafeArrayFormatter fmt) {
     } \
     printf("}\n"); \
 } while (0)
+#undef LINTNORE
 
 // Logs via LOG_INFO using a formatter callback.
 static void UnsafeArray_Log(UnsafeArray *arr, UnsafeArrayFormatter fmt) {

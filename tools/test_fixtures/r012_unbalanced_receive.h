@@ -1,0 +1,3 @@
+#pragma once
+RECEIVE_MESSAGE_BEGIN()
+    RECEIVE_MESSAGE_ROUTE(Foo)

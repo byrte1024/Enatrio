@@ -555,6 +555,7 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
     }
 
     // Phase 4: Build return array with external refs
+#define LINTNORE
     ExternalReference *result = (ExternalReference *)malloc(root_count * sizeof(ExternalReference));
     if (!result) {
         _deser_cleanup(id_map, object_count, root_ids, root_ext_refs);
@@ -570,6 +571,8 @@ static ExternalReference *Object_Deserialize(ByteStream *stream, int *out_root_c
             result[i] = NULL;
         }
     }
+
+#undef LINTNORE
 
     *out_root_count = (int)root_count;
     free(id_map);

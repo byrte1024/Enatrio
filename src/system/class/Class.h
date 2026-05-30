@@ -301,6 +301,7 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 // ============================================================
 // Class definition macros
 // ============================================================
+#define LINTNORE
 
 //   BEGIN_CLASS(Exploder, 0x22AB)
 // Expands to:
@@ -447,6 +448,8 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
         _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
         return _cd; \
     }
+
+#undef LINTNORE
 
 // Only frees data (the UnsafeVariedHashMap) -- the MessagePayload struct
 // itself lives on the stack, so only the heap-allocated map needs cleanup.
