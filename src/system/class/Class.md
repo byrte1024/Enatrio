@@ -213,6 +213,11 @@ uint8_t r = DISPATCH(CID_Window, MID_Window_Open, {
 }, {});
 ```
 
+**Safety:** All dispatch helpers guard against NULL payload data. If
+`PreparePayload` or `PrepareSelfPayload` fails (returns NULL data), the helpers
+return `MESSAGE_RESULT_OOM` without touching the payload. `SELF_DISPATCH` also
+guards against a NULL ref and returns `MESSAGE_RESULT_INVALID_SELF`.
+
 ### Manual Dispatch
 
 For cases where the helpers don't fit, use the full prepare/dispatch/free

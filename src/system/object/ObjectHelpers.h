@@ -199,3 +199,57 @@ static inline TempObjectReference Object_GetRef(TempObjectReference obj, const c
 
 #define Object_SGetRef(obj, str_key) \
     Object_GetRef(obj, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+
+// ============================================================
+// Singleton pattern macros
+//
+// Use AFTER CLASSDEF() and #undef TYPE. Provides:
+//   - ClassName_CreateSingleton()  -> ExternalReference (creates the one instance)
+//   - ClassName_DestroySingleton() -> void (unrefs and NULLs)
+//   - ClassName_HasSingleton()     -> int (1 if exists)
+//   - GET_SINGLETON(ClassName)     -> TempObjectReference (borrowed ref)
+//
+// Example:
+//   CLASSDEF()
+//   #undef TYPE
+//   DECLARE_SINGLETON(Window)
+//
+//   // usage:
+//   Window_CreateSingleton();
+//   TempObjectReference win = GET_SINGLETON(Window);
+//   Window_DestroySingleton();
+// ============================================================
+
+#define LINTNORE
+
+#define DECLARE_SINGLETON(classname) \
+    static ExternalReference _##classname##_singleton = NULL; \
+    \
+    static ExternalReference classname##_CreateSingleton(void) { \
+        if (_##classname##_singleton != NULL) { \
+            LOG_ERROR(#classname " singleton already exists"); \
+            return _##classname##_singleton; \
+        } \
+        _##classname##_singleton = Object_CreateRef(CID_##classname); \
+        if (_##classname##_singleton == NULL) { \
+            LOG_ERROR("Failed to create " #classname " singleton"); \
+        } \
+        return _##classname##_singleton; \
+    } \
+    \
+    static void classname##_DestroySingleton(void) { \
+        if (_##classname##_singleton == NULL) { \
+            LOG_ERROR("No " #classname " singleton to destroy"); \
+            return; \
+        } \
+        ObjectContainer_UnRef_External(&_##classname##_singleton); \
+    } \
+    \
+    static int classname##_HasSingleton(void) { \
+        return _##classname##_singleton != NULL; \
+    }
+
+#define GET_SINGLETON(classname) \
+    (ObjectContainer_TempFrom(_##classname##_singleton))
+
+#undef LINTNORE

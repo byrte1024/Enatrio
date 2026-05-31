@@ -231,32 +231,7 @@ CLASSDEF()
 
 #undef TYPE
 
-// ============================================================
-// Singleton
-// ============================================================
-
-#define LINTNORE
-static ExternalReference _window_instance = NULL;
-#undef LINTNORE
-
-#define GET_WINDOW_SINGLETON_REF (ObjectContainer_TempFrom(_window_instance))
-
-static ExternalReference Window_CreateSingleton(void) {
-    if (_window_instance != NULL) {
-        LOG_ERROR("Window singleton already exists");
-        return _window_instance;
-    }
-    _window_instance = Object_CreateRef(CID_Window);
-    return _window_instance;
-}
-
-static void Window_DestroySingleton(void) {
-    if (_window_instance == NULL) {
-        LOG_ERROR("No window singleton to destroy");
-        return;
-    }
-    ObjectContainer_UnRef_External(&_window_instance);
-}
+DECLARE_SINGLETON(Window)
 
 // ============================================================
 // Frame helpers
@@ -265,8 +240,8 @@ static void Window_DestroySingleton(void) {
 static void Window_BeginFrame(void) {
     BeginDrawing();
     ClearBackground(BLACK);
-    if (_window_instance == NULL) return;
-    TempObjectReference w = GET_WINDOW_SINGLETON_REF;
+    if (_Window_singleton == NULL) return;
+    TempObjectReference w = GET_SINGLETON(Window);
     if (!w || !w->data) return;
     int *vflag = (int *)_Object_GetValueData(w->data->values, "has_virtual", 11);
     if (vflag && *vflag) {
@@ -276,8 +251,8 @@ static void Window_BeginFrame(void) {
 }
 
 static void Window_EndFrame(void) {
-    if (_window_instance == NULL) { EndDrawing(); return; }
-    TempObjectReference w = GET_WINDOW_SINGLETON_REF;
+    if (_Window_singleton == NULL) { EndDrawing(); return; }
+    TempObjectReference w = GET_SINGLETON(Window);
     if (!w || !w->data) { EndDrawing(); return; }
 
     // Keep rw/rh in sync with actual screen size (window is resizable)

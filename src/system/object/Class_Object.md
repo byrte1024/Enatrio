@@ -398,6 +398,41 @@ payload.
 
 ---
 
+## Singleton Pattern
+
+For classes that should have exactly one instance (e.g., Window, Audio):
+
+```c
+// After CLASSDEF() and #undef TYPE:
+DECLARE_SINGLETON(Window)
+```
+
+This expands to:
+- `Window_CreateSingleton()` -- creates the one instance via Object_CreateRef, errors if already exists
+- `Window_DestroySingleton()` -- unrefs and NULLs the static reference
+- `Window_HasSingleton()` -- returns 1 if the singleton exists, 0 otherwise
+- `GET_SINGLETON(Window)` -- returns a TempObjectReference (borrowed) to the singleton
+
+Usage:
+```c
+Window_CreateSingleton();
+TempObjectReference win = GET_SINGLETON(Window);
+
+SELF_DISPATCH(win, MID_Window_SELF_Open, {
+    Payload_SetValue(msg, "Width", int, 640);
+    Payload_SetValue(msg, "Height", int, 480);
+}, {});
+
+// ... game loop ...
+
+Window_DestroySingleton();
+```
+
+The singleton is just a static ExternalReference. DECLARE_SINGLETON must appear
+after CLASSDEF() and #undef TYPE since it references CID_ClassName.
+
+---
+
 ## Visualization
 
 Dump the object reference graph to a text file for debugging:

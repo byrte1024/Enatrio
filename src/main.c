@@ -22,7 +22,7 @@ int main() {
   EndClassRegistrations();
 
   Window_CreateSingleton();
-  TempObjectReference win = GET_WINDOW_SINGLETON_REF;
+  TempObjectReference win = GET_SINGLETON(Window);
 
   SELF_DISPATCH(win, MID_Window_SELF_Open, {
     Payload_SetValue(msg, "Width", int, 640);
