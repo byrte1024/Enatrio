@@ -669,6 +669,63 @@ static void test_class_dispatch_unregistered(void) {
 
 // -- Runner --
 
+// ============================================================
+// Integer MID tests
+// ============================================================
+
+static void test_class_mid_composite_value(void) {
+    TEST("mid: composite value is (CID << 16) | local_id");
+    // Calculator CID = 0x0002, Add local = 0x01
+    ASSERT(MID_Calculator_Add == ((uint32_t)0x0002 << 16 | 0x01));
+    // Sub local = 0x02
+    ASSERT(MID_Calculator_Sub == ((uint32_t)0x0002 << 16 | 0x02));
+    PASS();
+}
+
+static void test_class_mid_uniqueness(void) {
+    TEST("mid: same class different locals produce different MIDs");
+    ASSERT(MID_Calculator_Add != MID_Calculator_Sub);
+    ASSERT(MID_Calculator_Sub != MID_Calculator_Mul);
+    // Extract CID from composite: high 16 bits should all be CID_Calculator
+    ASSERT((MID_Calculator_Add >> 16) == CID_Calculator);
+    ASSERT((MID_Calculator_Sub >> 16) == CID_Calculator);
+    ASSERT((MID_Calculator_Mul >> 16) == CID_Calculator);
+    PASS();
+}
+
+static void test_class_mid_zero_is_empty(void) {
+    TEST("mid: MESSAGEID_EMPTY is 0");
+    ASSERT(MESSAGEID_EMPTY == 0);
+    // No valid MID should be 0 (CID_Untyped=0 is reserved, so no class has CID 0)
+    ASSERT(MID_Calculator_Add != MESSAGEID_EMPTY);
+    PASS();
+}
+
+static void test_class_mid_dispatch_by_integer(void) {
+    TEST("mid: dispatch works with integer MID");
+    MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
+    ASSERT(msg.mid == MID_Calculator_Add);
+    ASSERT(msg.mid != 0);
+    Payload_SetValue(&msg, "a", int, 7);
+    Payload_SetValue(&msg, "b", int, 3);
+    DispatchMessage(&msg);
+    ASSERT(MESSAGE_RESULT_ISOK(msg.result));
+    ASSERT(Payload_GetDeref(&msg, "result", int) == 10);
+    FreePayload(&msg);
+    PASS();
+}
+
+static void test_class_mid_can_dispatch_switch(void) {
+    TEST("mid: CanDispatchMessage routes correctly");
+    ASSERT(CanDispatchMessage(MID_Calculator_Add, CID_Calculator));
+    ASSERT(CanDispatchMessage(MID_Calculator_Sub, CID_Calculator));
+    ASSERT(CanDispatchMessage(MID_Calculator_Mul, CID_Calculator));
+    // Calculator should NOT handle a fabricated MID from a different CID
+    uint32_t fake_mid = ((uint32_t)0x9999 << 16) | 0x01;
+    ASSERT(!CanDispatchMessage(fake_mid, CID_Calculator));
+    PASS();
+}
+
 static void run_class_tests(void) {
     BeginClassRegistrations();
     RegisterClass(Calculator_ClassDef());
@@ -732,6 +789,13 @@ static void run_class_tests(void) {
     test_class_dispatch_null_data();
     test_class_dispatch_untyped();
     test_class_dispatch_unregistered();
+
+    LOG_INFO("=== Integer MID Tests ===");
+    test_class_mid_composite_value();
+    test_class_mid_uniqueness();
+    test_class_mid_zero_is_empty();
+    test_class_mid_dispatch_by_integer();
+    test_class_mid_can_dispatch_switch();
 
     LOG_INFO("=== Payload Macro Tests ===");
     test_class_payload_initial_state();
