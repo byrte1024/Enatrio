@@ -625,23 +625,21 @@ int main(void) {
     printf("\n%d benchmarks complete.\n\n", _bench_count);
 
     // ============================================================
-    // Assertions -- scaling and ratio checks
+    // Assertions -- calibrated to CI runner (ubuntu-latest, AMD EPYC)
+    // Absolute caps use ~3x the CI baseline for noise margin.
+    // Scaling caps verify O(1) behavior (ratio near 1.0).
     // ============================================================
     printf("=== Benchmark Assertions ===\n");
 
-    // Scaling: HashMap Get should be O(1) -- constant regardless of N
-    // The scaling section outputs N=100..50000 but those use _header not _pb.
-    // We test via the dispatch scaling results instead.
-
-    // Scaling: first MID vs last MID dispatch should be within 10x
-    // (string dispatch is O(n), so last is much slower -- this catches regression)
+    // --- Scaling: MID dispatch must be O(1) ---
+    // CI showed ratios of 1.0-1.1x. Cap at 3x for noise.
     {
         double first32 = _bench_lookup("32 MIDs: dispatch FIRST (F0001)");
         double last32  = _bench_lookup("32 MIDs: dispatch LAST (F0032)");
         if (first32 > 0 && last32 > 0) {
             double ratio = last32 / first32;
             printf("  32-MID first/last ratio: %.1fx\n", ratio);
-            BENCH_ASSERT("32 MIDs: last/first ratio < 20x", ratio < 20.0);
+            BENCH_ASSERT("32 MIDs: last/first ratio < 3x (O(1) dispatch)", ratio < 3.0);
         }
     }
     {
@@ -650,7 +648,7 @@ int main(void) {
         if (first100 > 0 && last100 > 0) {
             double ratio = last100 / first100;
             printf("  100-MID first/last ratio: %.1fx\n", ratio);
-            BENCH_ASSERT("100 MIDs: last/first ratio < 50x", ratio < 50.0);
+            BENCH_ASSERT("100 MIDs: last/first ratio < 3x (O(1) dispatch)", ratio < 3.0);
         }
     }
     {
@@ -659,11 +657,22 @@ int main(void) {
         if (first1000 > 0 && last1000 > 0) {
             double ratio = last1000 / first1000;
             printf("  1000-MID first/last ratio: %.1fx\n", ratio);
-            BENCH_ASSERT("1000 MIDs: last/first ratio < 500x", ratio < 500.0);
+            BENCH_ASSERT("1000 MIDs: last/first ratio < 3x (O(1) dispatch)", ratio < 3.0);
         }
     }
 
-    // Ratio: Upsert should be faster than Remove+Set
+    // --- Scaling: CanDispatchMessage must be O(1) across class sizes ---
+    {
+        double can32  = _bench_lookup("32 MIDs: CanDispatch LAST");
+        double can1000 = _bench_lookup("1000 MIDs: CanDispatch LAST");
+        if (can32 > 0 && can1000 > 0) {
+            double ratio = can1000 / can32;
+            printf("  CanDispatch 1000/32 ratio: %.1fx\n", ratio);
+            BENCH_ASSERT("CanDispatch scales O(1): 1000/32 ratio < 3x", ratio < 3.0);
+        }
+    }
+
+    // --- Ratios: faster operations must stay faster ---
     {
         double upsert = _bench_lookup("Upsert (same key, in-place)");
         double rmset  = _bench_lookup("Remove+Set cycle (same key)");
@@ -672,8 +681,6 @@ int main(void) {
             BENCH_ASSERT("Upsert faster than Remove+Set", upsert < rmset);
         }
     }
-
-    // Ratio: AddBulk should be faster than sequential Add (per element)
     {
         double bulk = _bench_lookup("AddBulk (10000 at once)");
         double seq  = _bench_lookup("Add (sequential)");
@@ -682,8 +689,6 @@ int main(void) {
             BENCH_ASSERT("AddBulk faster than sequential Add", bulk < seq);
         }
     }
-
-    // Ratio: Pool recycle should be faster than dispatch
     {
         double pool = _bench_lookup("PreparePayload + FreePayload (pool)");
         double disp = _bench_lookup("Dispatch (1 MID, no-op handler)");
@@ -693,24 +698,42 @@ int main(void) {
         }
     }
 
-    // Absolute: payload pool should be under 100ns on any hardware
-    {
-        double pool = _bench_lookup("PreparePayload + FreePayload (pool)");
-        if (pool > 0) {
-            BENCH_ASSERT("Payload pool recycle < 100 ns", pool < 100.0);
-        }
-    }
+    // --- Absolute caps (3x CI baseline for noise margin) ---
+    // CI baseline: pool=2.9, dispatch=7.0, get=40.4, upsert=4.9,
+    //   candisp=3.2, selfdispatch=559, create+destroy=1670, spread10=5698
 
-    // Absolute: HashMap Get should be under 500ns on any hardware
     {
-        double get = _bench_lookup("Get (existing, incl. snprintf)");
-        if (get > 0) {
-            BENCH_ASSERT("HashMap Get < 500 ns (incl. snprintf)", get < 500.0);
-        }
+        double v = _bench_lookup("PreparePayload + FreePayload (pool)");
+        if (v > 0) BENCH_ASSERT("Payload pool < 10 ns (CI baseline: 2.9)", v < 10.0);
     }
-
-    // Data integrity: varied hashmap data should not grow after cycles
-    // (checked inline in the bench output -- just verify the bench ran)
+    {
+        double v = _bench_lookup("Dispatch (1 MID, no-op handler)");
+        if (v > 0) BENCH_ASSERT("Dispatch (no-op) < 25 ns (CI baseline: 7.0)", v < 25.0);
+    }
+    {
+        double v = _bench_lookup("Get (existing, incl. snprintf)");
+        if (v > 0) BENCH_ASSERT("HashMap Get < 150 ns (CI baseline: 40.4)", v < 150.0);
+    }
+    {
+        double v = _bench_lookup("Upsert (same key, in-place)");
+        if (v > 0) BENCH_ASSERT("HashMap Upsert < 20 ns (CI baseline: 4.9)", v < 20.0);
+    }
+    {
+        double v = _bench_lookup("CanDispatchMessage (direct, 1 MID)");
+        if (v > 0) BENCH_ASSERT("CanDispatchMessage < 15 ns (CI baseline: 3.2)", v < 15.0);
+    }
+    {
+        double v = _bench_lookup("SELF_DISPATCH (1 SELF MID, no-op)");
+        if (v > 0) BENCH_ASSERT("SELF_DISPATCH < 2000 ns (CI baseline: 559)", v < 2000.0);
+    }
+    {
+        double v = _bench_lookup("Object_Create + Object_Destroy (GameObject)");
+        if (v > 0) BENCH_ASSERT("Object Create+Destroy < 5000 ns (CI baseline: 1670)", v < 5000.0);
+    }
+    {
+        double v = _bench_lookup("SPREAD_DOWN (root + 10 children)");
+        if (v > 0) BENCH_ASSERT("SpreadMessage (10 children) < 20000 ns (CI baseline: 5698)", v < 20000.0);
+    }
 
     printf("\n=== Assertions: %d/%d passed ===\n",
         _assert_count - _assert_fail, _assert_count);
