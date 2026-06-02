@@ -268,6 +268,36 @@ static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
     return payload;
 }
 
+// ============================================================
+// Payload pool -- recycles UnsafeVariedHashMaps to avoid
+// malloc/free on every dispatch. Grows dynamically on first use,
+// subsequent calls are allocation-free.
+// ============================================================
+
+inline UnsafeVariedHashMap **_payload_pool = NULL;
+inline uint32_t _payload_pool_count = 0;
+inline uint32_t _payload_pool_capacity = 0;
+
+static inline UnsafeVariedHashMap *_PayloadPool_Acquire(void) {
+    if (_payload_pool_count > 0) {
+        return _payload_pool[--_payload_pool_count];
+    }
+    return UnsafeVariedHashMap_Create(4);
+}
+
+static inline void _PayloadPool_Release(UnsafeVariedHashMap *map) {
+    UnsafeVariedHashMap_Clear(map);
+    if (_payload_pool_count >= _payload_pool_capacity) {
+        uint32_t new_cap = _payload_pool_capacity == 0 ? 16 : _payload_pool_capacity * 2;
+        UnsafeVariedHashMap **new_pool = (UnsafeVariedHashMap **)realloc(
+            _payload_pool, new_cap * sizeof(UnsafeVariedHashMap *));
+        if (!new_pool) { UnsafeVariedHashMap_Destroy(map); return; }
+        _payload_pool = new_pool;
+        _payload_pool_capacity = new_cap;
+    }
+    _payload_pool[_payload_pool_count++] = map;
+}
+
 static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     MessagePayload payload = {0};
 
@@ -275,7 +305,7 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     memcpy(payload.mid, mid, sizeof(MessageID));
     payload.result = MESSAGE_RESULT_NOTSENT;
 
-    payload.data = UnsafeVariedHashMap_Create(8);
+    payload.data = _PayloadPool_Acquire();
     if (payload.data == NULL) {
         LOG_ERROR("Failed to allocate payload data map.");
         return payload;
@@ -507,11 +537,12 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 
 #undef LINTNORE
 
-// Only frees data (the UnsafeVariedHashMap) -- the MessagePayload struct
-// itself lives on the stack, so only the heap-allocated map needs cleanup.
+// Returns the payload's data map to the pool for reuse.
+// The MessagePayload struct itself lives on the stack.
 static inline void FreePayload(MessagePayload* payload) {
     if (payload->data != NULL) {
-        UnsafeVariedHashMap_Destroy(payload->data);
+        _PayloadPool_Release(payload->data);
+        payload->data = NULL;
     }
 }
 

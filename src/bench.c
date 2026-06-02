@@ -252,6 +252,14 @@ static void bench_dispatch(void) {
     RegisterClass(Window_ClassDef());
     EndClassRegistrations();
 
+    // Pure PreparePayload + FreePayload (pool recycle)
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_Exploder, MID_Exploder_ShimmiShimmiYea);
+          FreePayload(&p);
+      } b=_now_ns();
+      _pb("PreparePayload + FreePayload (pool)", NB, b-a); }
+
     // Dispatch (stateless, no Self)
     { a=_now_ns();
       for(int i=0;i<NB;i++){
@@ -443,6 +451,15 @@ int main(void) {
     printf("======================================\n");
     printf("Build: release (-O2), %d source files, %d lines\n", SRC_FILE_COUNT, SRC_LINE_COUNT);
     printf("Columns: ops | total time | per-op time | max ops within 1ms / 8.33ms / 16.67ms\n");
+
+    // Warmup: prime the payload pool and CPU caches
+    {
+        for (int i = 0; i < 1000; i++) {
+            MessagePayload p = PreparePayload(CID_Untyped, MESSAGEID_EMPTY);
+            FreePayload(&p);
+        }
+        printf("Payload pool primed: %u cached\n", _payload_pool_count);
+    }
 
     bench_array();
     bench_hashmap();

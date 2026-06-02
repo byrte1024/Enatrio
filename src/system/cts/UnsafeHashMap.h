@@ -8,7 +8,7 @@
 // tombstones to avoid breaking probe chains. Without them, a deleted
 // slot would terminate probes early and hide entries inserted after it.
 #define UNSAFEHASHMAP_DELETED (-2)
-#define UNSAFEHASHMAP_DEFAULT_CAPACITY 64
+#define UNSAFEHASHMAP_DEFAULT_CAPACITY 8
 #define UNSAFEHASHMAP_LOAD_FACTOR_NUM 7
 #define UNSAFEHASHMAP_LOAD_FACTOR_DEN 10
 
@@ -411,6 +411,21 @@ static void UnsafeVariedHashMap_Destroy(UnsafeVariedHashMap *map) {
     UnsafeArray_Destroy(map->free_list);
     UnsafeArray_Destroy(map->data_free_list);
     free(map);
+}
+
+// Resets the map to empty without freeing the backing allocations.
+static inline void UnsafeVariedHashMap_Clear(UnsafeVariedHashMap *map) {
+    if (map->entry_count > 0) {
+        for (uint32_t i = 0; i < map->bucket_count; i++) {
+            if (map->buckets[i].key != NULL) free(map->buckets[i].key);
+        }
+        _UnsafeVariedHashMap_InitBuckets(map->buckets, map->bucket_count);
+    }
+    map->entry_count = 0;
+    map->entries->count = 0;
+    map->data->count = 0;
+    map->free_list->count = 0;
+    map->data_free_list->count = 0;
 }
 
 static inline uint32_t _UnsafeVariedHashMap_FindSlot(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
