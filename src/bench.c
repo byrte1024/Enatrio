@@ -836,7 +836,7 @@ int main(void) {
     }
     {
         double v = _bench_lookup("SELF_DISPATCH (1 SELF MID, no-op)");
-        if (v > 0) BENCH_ASSERT("SELF_DISPATCH < 2000 ns (CI baseline: 559)", v < 2000.0);
+        if (v > 0) BENCH_ASSERT("SELF_DISPATCH < 150 ns (CI baseline: 39.7)", v < 150.0);
     }
     {
         double v = _bench_lookup("Object_Create + Object_Destroy (GameObject)");
