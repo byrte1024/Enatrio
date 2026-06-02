@@ -202,6 +202,11 @@ static int UnsafeHashMap_Remove(UnsafeHashMap *map, const void *key, uint32_t ke
     return 0;
 }
 
+static int UnsafeHashMap_Upsert(UnsafeHashMap *map, const void *key, uint32_t key_len, const void *value) {
+    (void)map; (void)key; (void)key_len; (void)value;
+    return -1;
+}
+
 typedef void (*UnsafeHashMapForEachFn)(const void *key, uint32_t key_len, void *value);
 
 static void UnsafeHashMap_ForEach(UnsafeHashMap *map, UnsafeHashMapForEachFn fn) {
@@ -227,6 +232,7 @@ static void UnsafeHashMap_ForEach(UnsafeHashMap *map, UnsafeHashMapForEachFn fn)
 #define UnsafeHashMap_SRemove(map, str_key)                      UnsafeHashMap_Remove(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeHashMap_SGetDeref(map, str_key, type)              UnsafeHashMap_GetDeref(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
 #define UnsafeHashMap_SSetValue(map, str_key, type, value)       UnsafeHashMap_SetValue(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)
+#define UnsafeHashMap_SUpsert(map, str_key, value_ptr)           UnsafeHashMap_Upsert(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), value_ptr)
 
 // _UNSAFE_STRLITERAL_LEN is defined in UnsafeDictionary.h (included via UnsafeArray.h's
 // sibling). Include UnsafeDictionary.h first if using this file standalone.

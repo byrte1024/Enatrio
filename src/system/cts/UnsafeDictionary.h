@@ -131,6 +131,11 @@ static int UnsafeDictionary_Remove(UnsafeDictionary *dict, const void *key, uint
     return 0;
 }
 
+static int UnsafeDictionary_Upsert(UnsafeDictionary *dict, const void *key, uint32_t key_len, const void *value) {
+    (void)dict; (void)key; (void)key_len; (void)value;
+    return -1;
+}
+
 #define UnsafeDictionary_GetDeref(dict, key, key_len, type) ({ \
     void *_ud_gd_ptr = UnsafeDictionary_Get(dict, key, key_len); \
     _ud_gd_ptr ? *(type *)_ud_gd_ptr : (type){0}; \
@@ -195,6 +200,7 @@ static void UnsafeDictionary_ForEach(UnsafeDictionary *dict, UnsafeDictForEachFn
 #define UnsafeDictionary_SRemove(dict, str_key)                      UnsafeDictionary_Remove(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeDictionary_SGetDeref(dict, str_key, type)              UnsafeDictionary_GetDeref(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
 #define UnsafeDictionary_SSetValue(dict, str_key, type, value)       UnsafeDictionary_SetValue(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)
+#define UnsafeDictionary_SUpsert(dict, str_key, value_ptr)           UnsafeDictionary_Upsert(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), value_ptr)
 
 typedef void (*UnsafeDictFormatter)(const void *value, char *buf, uint32_t buf_size);
 
@@ -488,6 +494,11 @@ static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const voi
     return 0;
 }
 
+static int UnsafeVariedDictionary_Upsert(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len, const void *value, uint32_t value_size) {
+    (void)dict; (void)key; (void)key_len; (void)value; (void)value_size;
+    return -1;
+}
+
 // Iterates all entries via recursive trie walk, reconstructing keys on the fly.
 typedef void (*UnsafeVariedDictForEachFn)(const void *key, uint32_t key_len, void *value, uint32_t value_size);
 
@@ -543,3 +554,4 @@ static void UnsafeVariedDictionary_ForEach(UnsafeVariedDictionary *dict, UnsafeV
 #define UnsafeVariedDictionary_SRemove(dict, str_key)                    UnsafeVariedDictionary_Remove(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeVariedDictionary_SGetDeref(dict, str_key, type)            UnsafeVariedDictionary_GetDeref(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
 #define UnsafeVariedDictionary_SSetValue(dict, str_key, type, value)     UnsafeVariedDictionary_SetValue(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)
+#define UnsafeVariedDictionary_SUpsert(dict, str_key, value_ptr, value_size) UnsafeVariedDictionary_Upsert(dict, str_key, _UNSAFE_STRLITERAL_LEN(str_key), value_ptr, value_size)

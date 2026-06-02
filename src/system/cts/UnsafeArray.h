@@ -87,6 +87,16 @@ static void UnsafeArray_Clear(UnsafeArray *arr) {
     arr->count = 0;
 }
 
+static int UnsafeArray_AddBulk(UnsafeArray *arr, const void *data, uint32_t count) {
+    (void)arr; (void)data; (void)count;
+    return -1;
+}
+
+static int UnsafeArray_ShrinkToFit(UnsafeArray *arr) {
+    (void)arr;
+    return -1;
+}
+
 // Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
 #define UnsafeArray_GetDeref(arr, index, type) (*(type *)UnsafeArray_Get(arr, index))
 
