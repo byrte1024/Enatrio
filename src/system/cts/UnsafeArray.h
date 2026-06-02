@@ -169,6 +169,78 @@ static void UnsafeArray_Log(UnsafeArray *arr, UnsafeArrayFormatter fmt) {
 // since void* values need to be reinterpreted before snprintf.
 // ============================================================
 
+// ============================================================
+// Shared varied-data allocator -- used by UnsafeVariedHashMap
+// and UnsafeVariedDictionary for data buffer region management.
+// Defined here because it depends only on UnsafeArray.
+// ============================================================
+
+typedef struct {
+    uint32_t offset;
+    uint32_t size;
+} _UnsafeVariedFreeRegion;
+
+static void _UnsafeVaried_FreeData(UnsafeArray *data_free_list, uint32_t offset, uint32_t size) {
+    if (size == 0) return;
+    for (uint32_t i = 0; i < data_free_list->count; i++) {
+        _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, i);
+        if (r == NULL) continue;
+        if (r->offset + r->size == offset) {
+            r->size += size;
+            for (uint32_t j = 0; j < data_free_list->count; j++) {
+                if (j == i) continue;
+                _UnsafeVariedFreeRegion *r2 = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, j);
+                if (r2 == NULL) continue;
+                if (r->offset + r->size == r2->offset) {
+                    r->size += r2->size;
+                    UnsafeArray_RemoveSwap(data_free_list, j);
+                    break;
+                }
+            }
+            return;
+        }
+        if (offset + size == r->offset) {
+            r->offset = offset;
+            r->size += size;
+            for (uint32_t j = 0; j < data_free_list->count; j++) {
+                if (j == i) continue;
+                _UnsafeVariedFreeRegion *r2 = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, j);
+                if (r2 == NULL) continue;
+                if (r2->offset + r2->size == r->offset) {
+                    r2->size += r->size;
+                    UnsafeArray_RemoveSwap(data_free_list, i);
+                    break;
+                }
+            }
+            return;
+        }
+    }
+    _UnsafeVariedFreeRegion region = { offset, size };
+    UnsafeArray_Add(data_free_list, &region);
+}
+
+static uint32_t _UnsafeVaried_WriteData(UnsafeArray *data, UnsafeArray *data_free_list,
+                                         const void *value, uint32_t value_size) {
+    for (uint32_t i = 0; i < data_free_list->count; i++) {
+        _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, i);
+        if (r == NULL) continue;
+        if (r->size >= value_size) {
+            uint32_t offset = r->offset;
+            memcpy(data->data + offset, value, value_size);
+            if (r->size > value_size) {
+                r->offset += value_size;
+                r->size -= value_size;
+            } else {
+                UnsafeArray_RemoveSwap(data_free_list, i);
+            }
+            return offset;
+        }
+    }
+    uint32_t offset = data->count;
+    UnsafeArray_AddBulk(data, value, value_size);
+    return offset;
+}
+
 static void _unsafe_fmt_snprintf(const void *v, char *b, uint32_t s, const char *fmt, uint32_t elem_size) {
     // Find the last conversion character in the format string
     const char *p = fmt;

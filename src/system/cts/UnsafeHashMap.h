@@ -341,9 +341,10 @@ typedef struct UnsafeVariedHashMap {
     UnsafeVariedHashEntry *buckets;
     uint32_t bucket_count;
     uint32_t entry_count;
-    UnsafeArray *entries;   // UnsafeVariedHashEntryInfo index
-    UnsafeArray *data;      // raw byte buffer (element_size = 1)
-    UnsafeArray *free_list; // int32_t indices of freed entry slots (data bytes not reclaimed)
+    UnsafeArray *entries;        // UnsafeVariedHashEntryInfo index
+    UnsafeArray *data;           // raw byte buffer (element_size = 1)
+    UnsafeArray *free_list;      // int32_t indices of freed entry slots
+    UnsafeArray *data_free_list; // _UnsafeVariedFreeRegion freed data regions
 } UnsafeVariedHashMap;
 
 static void _UnsafeVariedHashMap_InitBuckets(UnsafeVariedHashEntry *buckets, uint32_t count) {
@@ -366,6 +367,7 @@ static UnsafeVariedHashMap *UnsafeVariedHashMap_Create(uint32_t capacity) {
     map->entries = UnsafeArray_Create(sizeof(UnsafeVariedHashEntryInfo), capacity);
     map->data = UnsafeArray_Create(1, capacity * 8);
     map->free_list = UnsafeArray_Create(sizeof(int32_t), 8);
+    map->data_free_list = UnsafeArray_Create(sizeof(_UnsafeVariedFreeRegion), 8);
     _UnsafeVariedHashMap_InitBuckets(map->buckets, bucket_count);
     return map;
 }
@@ -380,6 +382,7 @@ static void UnsafeVariedHashMap_Destroy(UnsafeVariedHashMap *map) {
     UnsafeArray_Destroy(map->entries);
     UnsafeArray_Destroy(map->data);
     UnsafeArray_Destroy(map->free_list);
+    UnsafeArray_Destroy(map->data_free_list);
     free(map);
 }
 
@@ -456,9 +459,8 @@ static int UnsafeVariedHashMap_Set(UnsafeVariedHashMap *map, const void *key, ui
     memcpy(e->key, key, key_len);
     e->key_len = key_len;
 
-    // Reuse freed entry slot if available, data bytes always appended
     UnsafeVariedHashEntryInfo info;
-    info.offset = map->data->count;
+    info.offset = _UnsafeVaried_WriteData(map->data, map->data_free_list, value, value_size);
     info.size = value_size;
 
     if (map->free_list->count > 0) {
@@ -469,11 +471,6 @@ static int UnsafeVariedHashMap_Set(UnsafeVariedHashMap *map, const void *key, ui
     } else {
         e->value = (int32_t)map->entries->count;
         UnsafeArray_Add(map->entries, &info);
-    }
-
-    const uint8_t *src = (const uint8_t *)value;
-    for (uint32_t i = 0; i < value_size; i++) {
-        UnsafeArray_Add(map->data, &src[i]);
     }
 
     map->entry_count++;
@@ -508,8 +505,6 @@ static int UnsafeVariedHashMap_Has(UnsafeVariedHashMap *map, const void *key, ui
     return UnsafeVariedHashMap_Get(map, key, key_len) != NULL;
 }
 
-// Marks slot as DELETED. Entry index slots are reclaimed via free_list,
-// but data bytes in the buffer are not -- acceptable for short-lived maps.
 static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
     uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
     if (slot == map->bucket_count) return -1;
@@ -517,6 +512,9 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
 
     if (e->value < 0) return -1;
     if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return -1;
+
+    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+    _UnsafeVaried_FreeData(map->data_free_list, info->offset, info->size);
 
     int32_t freed_slot = e->value;
     UnsafeArray_Add(map->free_list, &freed_slot);
@@ -528,11 +526,30 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
     return 0;
 }
 
-// Upsert: insert or overwrite. Single probe -- no tombstone churn.
+// Upsert: insert or overwrite in place. Same size writes in place (zero waste).
+// Smaller writes in place + frees tail. Larger frees old + allocates new.
 static int UnsafeVariedHashMap_Upsert(UnsafeVariedHashMap *map, const void *key, uint32_t key_len, const void *value, uint32_t value_size) {
-    if (UnsafeVariedHashMap_Has(map, key, key_len)) {
-        UnsafeVariedHashMap_Remove(map, key, key_len);
+    if (key_len > UNSAFEHASHMAP_MAX_KEY_LEN) return -1;
+    uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
+    if (slot == map->bucket_count) return -1;
+    UnsafeVariedHashEntry *e = &map->buckets[slot];
+
+    if (e->value >= 0 && e->key_len == key_len && memcmp(e->key, key, key_len) == 0) {
+        UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+        if (value_size <= info->size) {
+            memcpy(map->data->data + info->offset, value, value_size);
+            if (info->size > value_size) {
+                _UnsafeVaried_FreeData(map->data_free_list, info->offset + value_size, info->size - value_size);
+            }
+            info->size = value_size;
+        } else {
+            _UnsafeVaried_FreeData(map->data_free_list, info->offset, info->size);
+            info->offset = _UnsafeVaried_WriteData(map->data, map->data_free_list, value, value_size);
+            info->size = value_size;
+        }
+        return 0;
     }
+
     return UnsafeVariedHashMap_Set(map, key, key_len, value, value_size);
 }
 

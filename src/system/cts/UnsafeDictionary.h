@@ -371,10 +371,11 @@ typedef struct UnsafeVariedEntry {
 } UnsafeVariedEntry;
 
 typedef struct UnsafeVariedDictionary {
-    UnsafeArray *nodes;     // trie nodes (UnsafeDictNode)
-    UnsafeArray *entries;   // UnsafeVariedEntry index
-    UnsafeArray *data;      // raw byte buffer (element_size = 1)
-    UnsafeArray *free_list; // int32_t indices of freed entry slots (data bytes not reclaimed)
+    UnsafeArray *nodes;          // trie nodes (UnsafeDictNode)
+    UnsafeArray *entries;        // UnsafeVariedEntry index
+    UnsafeArray *data;           // raw byte buffer (element_size = 1)
+    UnsafeArray *free_list;      // int32_t indices of freed entry slots
+    UnsafeArray *data_free_list; // _UnsafeVariedFreeRegion freed data regions
 } UnsafeVariedDictionary;
 
 static UnsafeVariedDictionary *UnsafeVariedDictionary_Create(uint32_t capacity) {
@@ -384,6 +385,7 @@ static UnsafeVariedDictionary *UnsafeVariedDictionary_Create(uint32_t capacity) 
     dict->data = UnsafeArray_Create(1, capacity * 8);
     dict->nodes = UnsafeArray_Create(sizeof(UnsafeDictNode), 64);
     dict->free_list = UnsafeArray_Create(sizeof(int32_t), 8);
+    dict->data_free_list = UnsafeArray_Create(sizeof(_UnsafeVariedFreeRegion), 8);
     UnsafeDictNode root = UnsafeDictNode_Empty();
     UnsafeArray_Add(dict->nodes, &root);
     return dict;
@@ -394,6 +396,7 @@ static void UnsafeVariedDictionary_Destroy(UnsafeVariedDictionary *dict) {
     UnsafeArray_Destroy(dict->entries);
     UnsafeArray_Destroy(dict->data);
     UnsafeArray_Destroy(dict->free_list);
+    UnsafeArray_Destroy(dict->data_free_list);
     free(dict);
 }
 
@@ -437,9 +440,8 @@ static int UnsafeVariedDictionary_Set(UnsafeVariedDictionary *dict, const void *
 
     if (node->value != UNSAFEDICT_EMPTY) return -1;
 
-    // Record entry (reuse freed slot if available, data bytes always appended)
     UnsafeVariedEntry entry;
-    entry.offset = dict->data->count;
+    entry.offset = _UnsafeVaried_WriteData(dict->data, dict->data_free_list, value, value_size);
     entry.size = value_size;
 
     if (dict->free_list->count > 0) {
@@ -450,12 +452,6 @@ static int UnsafeVariedDictionary_Set(UnsafeVariedDictionary *dict, const void *
     } else {
         node->value = (int32_t)dict->entries->count;
         UnsafeArray_Add(dict->entries, &entry);
-    }
-
-    // Append raw bytes
-    const uint8_t *src = (const uint8_t *)value;
-    for (uint32_t i = 0; i < value_size; i++) {
-        UnsafeArray_Add(dict->data, &src[i]);
     }
 
     return 0;
@@ -487,8 +483,6 @@ static int UnsafeVariedDictionary_Has(UnsafeVariedDictionary *dict, const void *
     return UnsafeVariedDictionary_Get(dict, key, key_len) != NULL;
 }
 
-// Entry index slots are reclaimed, but data bytes in the buffer are not --
-// acceptable trade-off since most payloads are short-lived.
 static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len) {
     int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
     if (node_idx == UNSAFEDICT_EMPTY) return -1;
@@ -496,14 +490,35 @@ static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const voi
     UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
     if (node->value == UNSAFEDICT_EMPTY) return -1;
 
+    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+    _UnsafeVaried_FreeData(dict->data_free_list, entry->offset, entry->size);
+
     UnsafeArray_Add(dict->free_list, &node->value);
     node->value = UNSAFEDICT_EMPTY;
     return 0;
 }
 
 static int UnsafeVariedDictionary_Upsert(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len, const void *value, uint32_t value_size) {
-    (void)dict; (void)key; (void)key_len; (void)value; (void)value_size;
-    return -1;
+    int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
+    if (node_idx != UNSAFEDICT_EMPTY) {
+        UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+        if (node->value != UNSAFEDICT_EMPTY) {
+            UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+            if (value_size <= entry->size) {
+                memcpy(dict->data->data + entry->offset, value, value_size);
+                if (entry->size > value_size) {
+                    _UnsafeVaried_FreeData(dict->data_free_list, entry->offset + value_size, entry->size - value_size);
+                }
+                entry->size = value_size;
+            } else {
+                _UnsafeVaried_FreeData(dict->data_free_list, entry->offset, entry->size);
+                entry->offset = _UnsafeVaried_WriteData(dict->data, dict->data_free_list, value, value_size);
+                entry->size = value_size;
+            }
+            return 0;
+        }
+    }
+    return UnsafeVariedDictionary_Set(dict, key, key_len, value, value_size);
 }
 
 // Iterates all entries via recursive trie walk, reconstructing keys on the fly.
