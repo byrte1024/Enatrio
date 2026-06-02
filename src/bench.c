@@ -67,6 +67,9 @@ CLASSDEF_INHERITS(Object)
 // Generated extreme classes: 32, 100, 1000 MIDs each
 #include "bench_classes.h"
 
+// Generated parameter-heavy classes: 1, 5, 10, 100, 1000 params per handler
+#include "bench_param_classes.h"
+
 // ============================================================
 // Benchmark harness
 // ============================================================
@@ -331,6 +334,11 @@ static void _register_bench_classes(void) {
     RegisterClass(BenchN32_ClassDef());
     RegisterClass(BenchN100_ClassDef());
     RegisterClass(BenchN1000_ClassDef());
+    RegisterClass(BenchParam1_ClassDef());
+    RegisterClass(BenchParam5_ClassDef());
+    RegisterClass(BenchParam10_ClassDef());
+    RegisterClass(BenchParam100_ClassDef());
+    RegisterClass(BenchParam1000_ClassDef());
     EndClassRegistrations();
 }
 
@@ -480,6 +488,62 @@ static void bench_dispatch_scaling(void) {
 // Object System: Object lifecycle
 // ============================================================
 
+// ============================================================
+// Dispatch with N payload parameters
+// ============================================================
+
+static void _bench_param_dispatch(const char *label, ClassID cid, MessageID mid, int n_params, int iters) {
+    double a, b;
+    char key[16];
+
+    // Warmup
+    for (int w = 0; w < 100; w++) {
+        MessagePayload p = PreparePayload(cid, mid);
+        for (int j = 1; j <= n_params; j++) {
+            int len = snprintf(key, sizeof(key), "v%d", j);
+            UnsafeVariedHashMap_Set(p.data, key, (uint32_t)len, &j, sizeof(int));
+        }
+        DispatchMessage(&p);
+        FreePayload(&p);
+    }
+
+    a = _now_ns();
+    for (int i = 0; i < iters; i++) {
+        MessagePayload p = PreparePayload(cid, mid);
+        for (int j = 1; j <= n_params; j++) {
+            int len = snprintf(key, sizeof(key), "v%d", j);
+            UnsafeVariedHashMap_Set(p.data, key, (uint32_t)len, &j, sizeof(int));
+        }
+        DispatchMessage(&p);
+        FreePayload(&p);
+    }
+    b = _now_ns();
+    _pb(label, iters, b - a);
+}
+
+static void bench_param_scaling(void) {
+    _header("Dispatch Scaling: N payload parameters");
+
+    _bench_param_dispatch("1 param: full dispatch",
+        CID_BenchParam1, MID_BenchParam1_Sum1, 1, 200000);
+
+    _bench_param_dispatch("5 params: full dispatch",
+        CID_BenchParam5, MID_BenchParam5_Sum5, 5, 100000);
+
+    _bench_param_dispatch("10 params: full dispatch",
+        CID_BenchParam10, MID_BenchParam10_Sum10, 10, 50000);
+
+    _bench_param_dispatch("100 params: full dispatch",
+        CID_BenchParam100, MID_BenchParam100_Sum100, 100, 10000);
+
+    _bench_param_dispatch("1000 params: full dispatch",
+        CID_BenchParam1000, MID_BenchParam1000_Sum1000, 1000, 1000);
+}
+
+// ============================================================
+// Object System: Object lifecycle
+// ============================================================
+
 static void bench_lifecycle(void) {
     _header("Object System: Lifecycle");
     int N = 10000;
@@ -619,6 +683,7 @@ int main(void) {
     bench_scaling();
     bench_dispatch();
     bench_dispatch_scaling();
+    bench_param_scaling();
     bench_lifecycle();
     bench_spread();
 
