@@ -18,6 +18,7 @@ int main() {
 
   BeginClassRegistrations();
   RegisterClass(Object_ClassDef());
+  RegisterClass(GameObject_ClassDef());
   RegisterClass(Exploder_ClassDef());
   RegisterClass(Window_ClassDef());
   EndClassRegistrations();

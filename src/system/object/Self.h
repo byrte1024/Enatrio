@@ -5,3 +5,4 @@
 #include "ObjectRef.h"
 #include "ObjectHelpers.h"
 #include "Object.h"
+#include "GameObject.h"
