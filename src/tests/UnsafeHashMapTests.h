@@ -617,6 +617,39 @@ static void test_hm_layout_inline_upsert_reuses_slot(void) {
     PASS();
 }
 
+static void test_hm_metric_1000_remove_add_cycles(void) {
+    TEST("hashmap metric: 1000 remove+add cycles, values->count unchanged");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v = 1;
+    UnsafeHashMap_Set(map, "k", 1, &v);
+    uint32_t baseline = map->values->count;
+    for (int i = 0; i < 1000; i++) {
+        UnsafeHashMap_Remove(map, "k", 1);
+        v = i + 2;
+        UnsafeHashMap_Set(map, "k", 1, &v);
+    }
+    ASSERT(map->values->count == baseline);
+    ASSERT(UnsafeHashMap_GetDeref(map, "k", 1, int) == 1001);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_metric_1000_upsert_cycles(void) {
+    TEST("hashmap metric: 1000 upsert cycles, values->count unchanged");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v = 0;
+    UnsafeHashMap_Set(map, "k", 1, &v);
+    uint32_t baseline = map->values->count;
+    for (int i = 0; i < 1000; i++) {
+        v = i;
+        UnsafeHashMap_Upsert(map, "k", 1, &v);
+    }
+    ASSERT(map->values->count == baseline);
+    ASSERT(UnsafeHashMap_GetDeref(map, "k", 1, int) == 999);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
 static void run_unsafe_hashmap_tests(void) {
     LOG_INFO("=== UnsafeHashMap Tests ===");
     test_hashmap_create_destroy();
@@ -659,6 +692,8 @@ static void run_unsafe_hashmap_tests(void) {
     test_hm_metric_100_remove_add_cycles();
     test_hm_metric_upsert_no_values_growth();
     test_hm_metric_inline_upsert_no_values_growth();
+    test_hm_metric_1000_remove_add_cycles();
+    test_hm_metric_1000_upsert_cycles();
 
     // Layout tests
     test_hm_layout_value_at_slot();

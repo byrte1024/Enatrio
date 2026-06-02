@@ -503,6 +503,39 @@ static void test_dict_metric_inline_upsert_no_growth(void) {
     PASS();
 }
 
+static void test_dict_metric_1000_remove_add_cycles(void) {
+    TEST("dict metric: 1000 remove+add cycles, values->count unchanged");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v = 1;
+    UnsafeDictionary_SSet(dict, "k", &v);
+    uint32_t baseline = dict->values->count;
+    for (int i = 0; i < 1000; i++) {
+        UnsafeDictionary_SRemove(dict, "k");
+        v = i + 2;
+        UnsafeDictionary_SSet(dict, "k", &v);
+    }
+    ASSERT(dict->values->count == baseline);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "k", int) == 1001);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_metric_1000_upsert_cycles(void) {
+    TEST("dict metric: 1000 upsert cycles, values->count unchanged");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v = 0;
+    UnsafeDictionary_SSet(dict, "k", &v);
+    uint32_t baseline = dict->values->count;
+    for (int i = 0; i < 1000; i++) {
+        v = i;
+        UnsafeDictionary_SUpsert(dict, "k", &v);
+    }
+    ASSERT(dict->values->count == baseline);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "k", int) == 999);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
 static void run_unsafe_dictionary_tests(void) {
     LOG_INFO("=== UnsafeDictionary Tests ===");
     test_dict_create_destroy();
@@ -539,6 +572,8 @@ static void run_unsafe_dictionary_tests(void) {
     test_dict_metric_remove_set_reuses_slot();
     test_dict_metric_100_remove_add_cycles();
     test_dict_metric_inline_upsert_no_growth();
+    test_dict_metric_1000_remove_add_cycles();
+    test_dict_metric_1000_upsert_cycles();
     // Layout tests
     test_dict_layout_value_slot();
     test_dict_layout_reuse_after_remove();
