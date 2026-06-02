@@ -516,11 +516,31 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
     return 0;
 }
 
-// Upsert: insert or overwrite. Single probe -- no tombstone churn.
+// Upsert: insert or overwrite in place. If the key exists, appends new data
+// bytes and updates the entry info (old bytes are orphaned in the append-only
+// buffer -- same as Remove+Set but without tombstone or key realloc).
 static int UnsafeVariedHashMap_Upsert(UnsafeVariedHashMap *map, const void *key, uint32_t key_len, const void *value, uint32_t value_size) {
-    if (UnsafeVariedHashMap_Has(map, key, key_len)) {
-        UnsafeVariedHashMap_Remove(map, key, key_len);
+    if (key_len > UNSAFEHASHMAP_MAX_KEY_LEN) return -1;
+
+    uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
+    if (slot == map->bucket_count) return -1;
+    UnsafeVariedHashEntry *e = &map->buckets[slot];
+
+    if (e->value >= 0 && e->key_len == key_len && memcmp(e->key, key, key_len) == 0) {
+        // Key exists -- append new data, update entry info
+        UnsafeVariedHashEntryInfo info;
+        info.offset = map->data->count;
+        info.size = value_size;
+        UnsafeArray_Set(map->entries, (uint32_t)e->value, &info);
+
+        const uint8_t *src = (const uint8_t *)value;
+        for (uint32_t i = 0; i < value_size; i++) {
+            UnsafeArray_Add(map->data, &src[i]);
+        }
+        return 0;
     }
+
+    // Key does not exist -- normal insert
     return UnsafeVariedHashMap_Set(map, key, key_len, value, value_size);
 }
 
