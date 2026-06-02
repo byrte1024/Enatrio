@@ -15,20 +15,23 @@
 #define TYPE Counter
 
 BEGIN_CLASS(0x0010);
+INHERITS(Object);
 
 DECLARE_SELF_MID(Increment);
 DECLARE_SELF_MID(Decrement);
 DECLARE_SELF_MID(GetCount);
 DECLARE_SELF_MID(Reset);
 
-// -- SELF lifecycle handlers (Default namespace) --
+// -- SELF lifecycle handlers (Object namespace) --
 
-SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Create)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
     Self_SetValue("count", int, 0);
     LOG_INFO("Counter created, count = 0");
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Destroy)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
     LOG_INFO("Counter destroyed, final count = %d", Self_GetDeref("count", int));
 MESSAGE_HANDLER_END()
 
@@ -60,8 +63,8 @@ SELF_MESSAGE_HANDLER_BEGIN(Reset)
 MESSAGE_HANDLER_END()
 
 CAN_RECEIVE_BEGIN()
-    SELF_CAN_RECEIVE_MID_EXTERN(Default, Create)
-    SELF_CAN_RECEIVE_MID_EXTERN(Default, Destroy)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
     SELF_CAN_RECEIVE_MID(Increment)
     SELF_CAN_RECEIVE_MID(Decrement)
     SELF_CAN_RECEIVE_MID(GetCount)
@@ -69,15 +72,15 @@ CAN_RECEIVE_BEGIN()
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
-    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Default, Create)
-    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Default, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
     SELF_RECEIVE_MESSAGE_ROUTE(Increment)
     SELF_RECEIVE_MESSAGE_ROUTE(Decrement)
     SELF_RECEIVE_MESSAGE_ROUTE(GetCount)
     SELF_RECEIVE_MESSAGE_ROUTE(Reset)
 RECEIVE_MESSAGE_END()
 
-CLASSDEF()
+CLASSDEF_INHERITS(Object)
 
 #undef TYPE
 
@@ -99,18 +102,21 @@ static MessagePayload _counter_dispatch(TempObjectReference obj, MessageID mid) 
 #define TYPE Node
 
 BEGIN_CLASS(0x0020);
+INHERITS(Object);
 
 DECLARE_SELF_MID(SetLeft);
 DECLARE_SELF_MID(SetRight);
 DECLARE_SELF_MID(GetValue);
 DECLARE_SELF_MID(SumTree);
 
-SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Create)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
     MH_ExtractDeref(value, int);
     Self_SetValue("value", int, value);
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Destroy)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
     (void)Self; // nothing extra to clean up, refs are auto-unref'd
 MESSAGE_HANDLER_END()
 
@@ -154,8 +160,8 @@ SELF_MESSAGE_HANDLER_BEGIN(SumTree)
 MESSAGE_HANDLER_END()
 
 CAN_RECEIVE_BEGIN()
-    SELF_CAN_RECEIVE_MID_EXTERN(Default, Create)
-    SELF_CAN_RECEIVE_MID_EXTERN(Default, Destroy)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
     SELF_CAN_RECEIVE_MID(SetLeft)
     SELF_CAN_RECEIVE_MID(SetRight)
     SELF_CAN_RECEIVE_MID(GetValue)
@@ -163,15 +169,15 @@ CAN_RECEIVE_BEGIN()
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
-    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Default, Create)
-    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Default, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
     SELF_RECEIVE_MESSAGE_ROUTE(SetLeft)
     SELF_RECEIVE_MESSAGE_ROUTE(SetRight)
     SELF_RECEIVE_MESSAGE_ROUTE(GetValue)
     SELF_RECEIVE_MESSAGE_ROUTE(SumTree)
 RECEIVE_MESSAGE_END()
 
-CLASSDEF()
+CLASSDEF_INHERITS(Object)
 
 #undef TYPE
 
@@ -189,7 +195,7 @@ static TempObjectReference _node_create(int value) {
     ghost->data->values = UnsafeVariedHashMap_Create(8);
     ghost->data->references = UnsafeHashMap_Create(sizeof(ObjectReference), 8);
 
-    MessagePayload p = PrepareSelfPayload(ghost, MID_Default_SELF_Create);
+    MessagePayload p = PrepareSelfPayload(ghost, MID_Object_SELF_Create);
     Payload_SetValue(&p, "value", int, value);
     DispatchMessage(&p);
     FreePayload(&p);
@@ -1527,6 +1533,7 @@ static void test_gc_sweep_idempotent(void) {
 static void test_self_ref_missing_key(void) {
     TEST("self: GetRef on missing key returns NULL");
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     EndClassRegistrations();
     ExternalReference obj = Object_CreateRef(CID_Counter);
@@ -1541,6 +1548,7 @@ static void test_self_ref_missing_key(void) {
 static void test_self_ref_overwrite_unrefs_old(void) {
     TEST("self: ref overwrite unrefs old target");
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     EndClassRegistrations();
     ExternalReference a = Object_CreateRef(CID_Counter);
@@ -1566,6 +1574,7 @@ static void test_self_ref_overwrite_unrefs_old(void) {
 static void test_self_unref_underflow_guard(void) {
     TEST("self: UnRef underflow is guarded");
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     EndClassRegistrations();
     ExternalReference obj = Object_CreateRef(CID_Counter);
@@ -1588,6 +1597,7 @@ static void test_self_unref_underflow_guard(void) {
 
 static void run_self_tests(void) {
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     RegisterClass(Node_ClassDef());
     EndClassRegistrations();

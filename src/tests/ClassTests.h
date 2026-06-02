@@ -7,7 +7,7 @@
 
 #define TYPE Calculator
 
-BEGIN_CLASS(0x0001);
+BEGIN_CLASS(0x0002);
 
 DECLARE_MID(Add);
 DECLARE_MID(Sub);

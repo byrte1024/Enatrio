@@ -107,9 +107,3 @@ DECLARE_SELF_MID(Deserialize);
 
 #undef TYPE
 
-// Backward-compat aliases: old Default MIDs -> Object MIDs.
-// Remove once all classes are migrated to use Object directly.
-#define MID_Default_SELF_Create    MID_Object_SELF_Create
-#define MID_Default_SELF_Destroy   MID_Object_SELF_Destroy
-#define MID_Default_SELF_Serialize MID_Object_SELF_Serialize
-#define MID_Default_SELF_Deserialize MID_Object_SELF_Deserialize

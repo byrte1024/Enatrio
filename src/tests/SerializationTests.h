@@ -18,6 +18,7 @@ static const char *_sertest_path(const char *name) {
 // Helper to set up class registrations for each test group
 static void _sertest_init_classes(void) {
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     RegisterClass(Node_ClassDef());
     EndClassRegistrations();
@@ -1046,6 +1047,7 @@ static void test_ser_sec_huge_root_count(void) {
 static void test_ser_sec_ser_id_oob(void) {
     TEST("ser security: out-of-bounds ser_id rejected");
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     EndClassRegistrations();
 
@@ -1069,6 +1071,7 @@ static void test_ser_sec_ser_id_oob(void) {
 static void test_ser_sec_key_len_overflow(void) {
     TEST("ser security: key_len > 256 rejected");
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     EndClassRegistrations();
 
@@ -1095,6 +1098,7 @@ static void test_ser_sec_key_len_overflow(void) {
 static void test_ser_sec_huge_data_size(void) {
     TEST("ser security: data_size > SER_MAX_DATA_SIZE rejected");
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     EndClassRegistrations();
 
@@ -1144,6 +1148,7 @@ static void test_ser_sec_truncated_stream(void) {
 static void test_ser_sec_huge_value_count(void) {
     TEST("ser security: value_count > SER_MAX_VALUES_PER_OBJECT rejected");
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     EndClassRegistrations();
 
@@ -1165,6 +1170,7 @@ static void test_ser_sec_huge_value_count(void) {
 static void test_ser_sec_target_id_oob_in_refs(void) {
     TEST("ser security: target_id >= object_count in refs is skipped");
     BeginClassRegistrations();
+    RegisterClass(Object_ClassDef());
     RegisterClass(Counter_ClassDef());
     EndClassRegistrations();
 
