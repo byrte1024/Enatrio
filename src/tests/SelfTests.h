@@ -17,10 +17,10 @@
 BEGIN_CLASS(0x0010);
 INHERITS(Object);
 
-DECLARE_SELF_MID(Increment);
-DECLARE_SELF_MID(Decrement);
-DECLARE_SELF_MID(GetCount);
-DECLARE_SELF_MID(Reset);
+DECLARE_SELF_MID(Increment, 0x01);
+DECLARE_SELF_MID(Decrement, 0x02);
+DECLARE_SELF_MID(GetCount, 0x03);
+DECLARE_SELF_MID(Reset, 0x04);
 
 // -- SELF lifecycle handlers (Object namespace) --
 
@@ -104,10 +104,10 @@ static MessagePayload _counter_dispatch(TempObjectReference obj, MessageID mid) 
 BEGIN_CLASS(0x0020);
 INHERITS(Object);
 
-DECLARE_SELF_MID(SetLeft);
-DECLARE_SELF_MID(SetRight);
-DECLARE_SELF_MID(GetValue);
-DECLARE_SELF_MID(SumTree);
+DECLARE_SELF_MID(SetLeft, 0x01);
+DECLARE_SELF_MID(SetRight, 0x02);
+DECLARE_SELF_MID(GetValue, 0x03);
+DECLARE_SELF_MID(SumTree, 0x04);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();

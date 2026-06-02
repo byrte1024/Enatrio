@@ -38,7 +38,7 @@ static inline MessagePayload PrepareSelfPayload(TempObjectReference reference, M
     }
 
     payload.cid_target = reference->cid;
-    memcpy(payload.mid, mid, sizeof(MessageID));
+    payload.mid = mid;
     payload.result = MESSAGE_RESULT_NOTSENT;
 
     payload.data = UnsafeVariedHashMap_Create(8);

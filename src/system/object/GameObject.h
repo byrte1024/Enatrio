@@ -32,13 +32,13 @@ static inline uint32_t _go_child_key(char *buf, int index) {
 BEGIN_CLASS(0x0003);
 INHERITS(Object);
 
-DECLARE_SELF_MID(SpreadMessage);
-DECLARE_SELF_MID(AddChild);
-DECLARE_SELF_MID(RemoveChild);
-DECLARE_SELF_MID(SetActive);
-DECLARE_SELF_MID(SetPriority);
-DECLARE_SELF_MID(Update);
-DECLARE_SELF_MID(Render);
+DECLARE_SELF_MID(SpreadMessage, 0x01);
+DECLARE_SELF_MID(AddChild, 0x02);
+DECLARE_SELF_MID(RemoveChild, 0x03);
+DECLARE_SELF_MID(SetActive, 0x04);
+DECLARE_SELF_MID(SetPriority, 0x05);
+DECLARE_SELF_MID(Update, 0x06);
+DECLARE_SELF_MID(Render, 0x07);
 
 // ============================================================
 // Internal helpers

@@ -9,16 +9,16 @@
 
 BEGIN_CLASS(0x0002);
 
-DECLARE_MID(Add);
-DECLARE_MID(Sub);
-DECLARE_MID(Mul);
-DECLARE_MID(AddInPlace);
-DECLARE_MID(Swap);
-DECLARE_MID(Clamp);
-DECLARE_MID(FMA);
-DECLARE_MID(Stats);
-DECLARE_MID(OptionalInc);
-DECLARE_MID(RawCopy);
+DECLARE_MID(Add, 0x01);
+DECLARE_MID(Sub, 0x02);
+DECLARE_MID(Mul, 0x03);
+DECLARE_MID(AddInPlace, 0x04);
+DECLARE_MID(Swap, 0x05);
+DECLARE_MID(Clamp, 0x06);
+DECLARE_MID(FMA, 0x07);
+DECLARE_MID(Stats, 0x08);
+DECLARE_MID(OptionalInc, 0x09);
+DECLARE_MID(RawCopy, 0x0A);
 
 // Add: ExtractDeref + SetValue
 MESSAGE_HANDLER_BEGIN(Add)
@@ -537,7 +537,7 @@ static void test_class_dispatch_untyped_cid(void) {
 
 static void test_class_dispatch_unsupported_mid(void) {
     TEST("class: dispatch unsupported MID");
-    MessageID bad_mid = "Calculator.Divide";
+    MessageID bad_mid = ((uint32_t)CID_Calculator << 16) | 0xFFFF;
     MessagePayload msg = PreparePayload(CID_Calculator, bad_mid);
     DispatchMessage(&msg);
     ASSERT(msg.result == MESSAGE_RESULT_NOT_SUPPORTED);
@@ -547,7 +547,7 @@ static void test_class_dispatch_unsupported_mid(void) {
 
 static void test_class_dispatch_empty_mid(void) {
     TEST("class: dispatch empty MID");
-    MessageID empty_mid = "";
+    MessageID empty_mid = MESSAGEID_EMPTY;
     MessagePayload msg = PreparePayload(CID_Calculator, empty_mid);
     DispatchMessage(&msg);
     ASSERT(msg.result == MESSAGE_RESULT_INVALID_MID);
@@ -570,7 +570,7 @@ static void test_class_payload_initial_state(void) {
     ASSERT(msg.result == MESSAGE_RESULT_NOTSENT);
     ASSERT(msg.data != NULL);
     ASSERT(msg.cid_target == CID_Calculator);
-    ASSERT(strcmp(msg.mid, MID_Calculator_Add) == 0);
+    ASSERT(msg.mid == MID_Calculator_Add);
     FreePayload(&msg);
     PASS();
 }
@@ -642,7 +642,7 @@ static void test_class_dispatch_null_data(void) {
     // Need classes registered first -- they should be from earlier tests
     MessagePayload p = {0};
     p.cid_target = CID_Calculator;
-    memcpy(p.mid, MID_Calculator_Add, sizeof(MessageID));
+    p.mid = MID_Calculator_Add;
     p.data = NULL;
     DispatchMessage(&p);
     ASSERT(p.result == MESSAGE_RESULT_NO_PAYLOAD);

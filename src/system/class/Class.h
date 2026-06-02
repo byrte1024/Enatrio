@@ -13,10 +13,10 @@ typedef uint16_t ClassID;
 #define CLASS_MAXNAMELENGTH 64
 #define CID_Untyped ((ClassID)(0))
 
-// Fixed char[64] instead of a pointer -- enables stack allocation and
-// memcpy without heap, avoids lifetime issues with dynamic strings.
-typedef char MessageID[64];
-#define MESSAGEID_EMPTY ((const char[64]) {0})
+// Integer MessageID: (owner_CID << 16) | user_local_id.
+// Enables switch-based dispatch instead of strcmp chains.
+typedef uint32_t MessageID;
+#define MESSAGEID_EMPTY ((MessageID)0)
 
 typedef struct MessagePayload {
     MessageID mid;
@@ -211,7 +211,7 @@ static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
         LOG_ERROR("Cannot dispatch NULL payload.");
         return NULL;
     }
-    if (payload->mid[0] == '\0') {
+    if (payload->mid == MESSAGEID_EMPTY) {
         LOG_ERROR("Message ID is empty, cannot dispatch.");
         payload->result = MESSAGE_RESULT_INVALID_MID;
         return payload;
@@ -248,7 +248,7 @@ static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
             walk = ClassDefinitions[walk].parent_cid;
         }
         if (!handled) {
-            LOG_ERROR("Class %d does not support message ID %s.", payload->cid_target, payload->mid);
+            LOG_ERROR("Class %d does not support message ID 0x%08X.", payload->cid_target, payload->mid);
             payload->result = MESSAGE_RESULT_NOT_SUPPORTED;
             return payload;
         }
@@ -257,7 +257,7 @@ static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
     // Check for PENDING after handler returns -- catches handlers that
     // forgot to set a result code, which would silently swallow errors.
     if(payload->result == MESSAGE_RESULT_PENDING){
-        LOG_ERROR("Class %d did not acknowledge message %s.", payload->cid_target, payload->mid);
+        LOG_ERROR("Class %d did not acknowledge message 0x%08X.", payload->cid_target, payload->mid);
         payload->result = MESSAGE_RESULT_IGNORED;
     }
 
@@ -302,7 +302,7 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     MessagePayload payload = {0};
 
     payload.cid_target = cid_target;
-    memcpy(payload.mid, mid, sizeof(MessageID));
+    payload.mid = mid;
     payload.result = MESSAGE_RESULT_NOTSENT;
 
     payload.data = _PayloadPool_Acquire();
@@ -368,17 +368,23 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 // Enum enumerators are TU-scoped, so a duplicate ID causes a redefinition error at compile time.
 #define BEGIN_CLASS(id) \
     enum { BAT2(_CLASSID_RESERVED_, id) = (id) }; \
-    inline const ClassID BAT2(CID_, TYPE) = (ClassID)(id); \
+    enum { BAT2(CID_, TYPE) = (ClassID)(id) }; \
     inline const char BAT2(CLASSNAME_, TYPE)[CLASS_MAXNAMELENGTH] = BSTR(TYPE)
 
 #define INHERITS(parentname) \
     static const ClassID BAT2(_INHERITS_FROM_, TYPE) = BAT2(CID_, parentname)
 
-//   DECLARE_MID(Detonate)
-// Expands to (with #define TYPE Exploder):
-//   static MessageID MID_Exploder_Detonate = "Exploder.Detonate";
-#define DECLARE_MID(msgname) \
-    static MessageID BAT4(MID_, TYPE, _, msgname) = BSTR(TYPE) "." BSTR(msgname)
+//   DECLARE_MID(Detonate, 0x01)
+// Expands to (with #define TYPE Exploder, BEGIN_CLASS(0x22AB)):
+//   enum { MID_Exploder_Detonate = (0x22AB << 16) | 0x01 };
+//   static const char MID_NAME_Exploder_Detonate[] = "Exploder.Detonate";
+// Uses _CLASSID_RESERVED_ enum (from BEGIN_CLASS) so the value is a
+// true integer constant expression, valid in switch case labels.
+#define DECLARE_MID(msgname, local_id) \
+    enum { BAT4(MID_, TYPE, _, msgname) = \
+        ((uint32_t)BAT2(CID_, TYPE) << 16) | (uint16_t)(local_id) }; \
+    static const char BAT4(MID_NAME_, TYPE, _, msgname)[] = \
+        BSTR(TYPE) "." BSTR(msgname)
 
 // ============================================================
 // Message handler macros
@@ -459,16 +465,18 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 // ============================================================
 
 #define CAN_RECEIVE_BEGIN() \
-    static bool BAT2(TYPE, _CanReceiveMID)(MessageID mid) {
+    static bool BAT2(TYPE, _CanReceiveMID)(MessageID mid) { \
+        switch (mid) {
 
 #define CAN_RECEIVE_MID(msgname) \
-    if (strcmp(mid, BAT4(MID_, TYPE, _, msgname)) == 0) return true;
+    case BAT4(MID_, TYPE, _, msgname): return true;
 
 #define CAN_RECEIVE_MID_EXTERN(classname, msgname) \
-    if (strcmp(mid, BAT4(MID_, classname, _, msgname)) == 0) return true;
+    case BAT4(MID_, classname, _, msgname): return true;
 
 #define CAN_RECEIVE_END() \
-        return false; \
+        default: return false; \
+        } \
     }
 
 // ============================================================
@@ -477,22 +485,23 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 
 #define RECEIVE_MESSAGE_BEGIN() \
     static void BAT2(TYPE, _ReceiveMessage)(MessagePayload* payload) { \
-        if (strcmp(payload->mid, "\0") == 0) { (void)0; }
+        switch (payload->mid) {
 
 #define RECEIVE_MESSAGE_ROUTE(msgname) \
-        else if (strcmp(payload->mid, BAT4(MID_, TYPE, _, msgname)) == 0) { \
-            BAT4(MESSAGE_HANDLER_, TYPE, _, msgname)(payload); \
-        }
+    case BAT4(MID_, TYPE, _, msgname): \
+        BAT4(MESSAGE_HANDLER_, TYPE, _, msgname)(payload); \
+        break;
 
 //   RECEIVE_MESSAGE_ROUTE_EXTERN(Object, SELF_Create)
 //   Matches MID_Object_SELF_Create, calls MESSAGE_HANDLER_Counter_Object_SELF_Create
 #define RECEIVE_MESSAGE_ROUTE_EXTERN(classname, msgname) \
-        else if (strcmp(payload->mid, BAT4(MID_, classname, _, msgname)) == 0) { \
-            BAT6(MESSAGE_HANDLER_, TYPE, _, classname, _, msgname)(payload); \
-        }
+    case BAT4(MID_, classname, _, msgname): \
+        BAT6(MESSAGE_HANDLER_, TYPE, _, classname, _, msgname)(payload); \
+        break;
 
 #define RECEIVE_MESSAGE_END() \
-        else { payload->result = MESSAGE_RESULT_NOT_SUPPORTED; } \
+        default: payload->result = MESSAGE_RESULT_NOT_SUPPORTED; break; \
+        } \
     }
 
 // ============================================================

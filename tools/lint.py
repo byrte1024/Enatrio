@@ -299,8 +299,8 @@ def check_handler_without_declare_mid(filepath, source, source_bytes, tree, igno
     declared = set()
     handled = {}  # mid -> line
 
-    pat_declare = re.compile(r"\bDECLARE_MID\s*\(\s*(\w+)\s*\)")
-    pat_declare_self = re.compile(r"\bDECLARE_SELF_MID\s*\(\s*(\w+)\s*\)")
+    pat_declare = re.compile(r"\bDECLARE_MID\s*\(\s*(\w+)\s*(?:,\s*[^)]+)?\)")
+    pat_declare_self = re.compile(r"\bDECLARE_SELF_MID\s*\(\s*(\w+)\s*(?:,\s*[^)]+)?\)")
     pat_handler = re.compile(r"\bMESSAGE_HANDLER_BEGIN\s*\(\s*(\w+)\s*\)")
     pat_handler_self = re.compile(r"\bSELF_MESSAGE_HANDLER_BEGIN\s*\(\s*(\w+)\s*\)")
 

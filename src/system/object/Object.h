@@ -6,10 +6,10 @@
 
 BEGIN_CLASS(0x0001);
 
-DECLARE_SELF_MID(Create);
-DECLARE_SELF_MID(Destroy);
-DECLARE_SELF_MID(Serialize);
-DECLARE_SELF_MID(Deserialize);
+DECLARE_SELF_MID(Create, 0x01);
+DECLARE_SELF_MID(Destroy, 0x02);
+DECLARE_SELF_MID(Serialize, 0x03);
+DECLARE_SELF_MID(Deserialize, 0x04);
 
 SELF_MESSAGE_HANDLER_BEGIN(Create)
     (void)Self;
