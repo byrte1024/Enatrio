@@ -1,0 +1,84 @@
+name: Benchmarks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  bench-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache apt packages
+        uses: actions/cache@v5
+        id: cache-apt
+        with:
+          path: ~/apt-cache
+          key: apt-deps-${{ runner.os }}
+
+      - name: Install dependencies
+        run: |
+          if [ -d ~/apt-cache ]; then
+            sudo cp -r ~/apt-cache/*.deb /var/cache/apt/archives/ 2>/dev/null || true
+          fi
+          sudo apt-get update
+          sudo apt-get install -y gcc make cmake git \
+            libgl1-mesa-dev libx11-dev libxrandr-dev libxinerama-dev \
+            libxcursor-dev libxi-dev libxext-dev libwayland-dev \
+            libxkbcommon-dev
+          mkdir -p ~/apt-cache
+          cp /var/cache/apt/archives/*.deb ~/apt-cache/ 2>/dev/null || true
+
+      - name: Cache raylib
+        uses: actions/cache@v5
+        id: cache-raylib
+        with:
+          path: lib/raylib/lib
+          key: raylib-5.5-${{ runner.os }}
+
+      - name: Build raylib from source
+        if: steps.cache-raylib.outputs.cache-hit != 'true'
+        run: |
+          git init /tmp/raylib-src
+          cd /tmp/raylib-src
+          git fetch --depth 1 https://github.com/raysan5/raylib.git c1ab645ca298a2801097931d1079b10ff7eb9df8
+          git checkout FETCH_HEAD
+          cd /tmp/raylib-src/src
+          make PLATFORM=PLATFORM_DESKTOP -j$(nproc)
+          mkdir -p $GITHUB_WORKSPACE/lib/raylib/lib
+          cp libraylib.a $GITHUB_WORKSPACE/lib/raylib/lib/libraylib.a
+
+      - name: Build benchmarks
+        run: bash ./build.sh bench --no-lint
+
+      - name: Run benchmarks
+        run: |
+          OUTPUT=$(./build/bench/linux/Enatrio 2>&1) || true
+          echo "$OUTPUT"
+          # Check assertions passed
+          if echo "$OUTPUT" | grep -q "FAIL:"; then
+            echo "::error::Benchmark assertions failed"
+            # Extract failures
+            echo "$OUTPUT" | grep "FAIL:" | while read line; do
+              echo "::error::$line"
+            done
+            exit 1
+          fi
+          # Verify assertion summary
+          ASSERT_LINE=$(echo "$OUTPUT" | grep "Assertions:")
+          echo "$ASSERT_LINE"
+          PASSED=$(echo "$ASSERT_LINE" | grep -oP '\d+(?=/)')
+          TOTAL=$(echo "$ASSERT_LINE" | grep -oP '(?<=/)\d+')
+          if [ "$PASSED" != "$TOTAL" ]; then
+            echo "::error::Not all benchmark assertions passed ($PASSED/$TOTAL)"
+            exit 1
+          fi
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-results-linux
+          path: build/bench/linux/

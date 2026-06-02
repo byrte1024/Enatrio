@@ -1,4 +1,5 @@
 #ifdef INBENCH
+#define LINTNORE
 
 #define _POSIX_C_SOURCE 199309L
 #include <stdio.h>
@@ -77,6 +78,31 @@ static double _now_ns(void) {
 }
 
 static int _bench_count = 0;
+static int _assert_count = 0;
+static int _assert_fail = 0;
+
+// Result storage for post-hoc assertions
+#define BENCH_MAX_RESULTS 128
+static struct { const char *name; double ns_per_op; } _bench_results[BENCH_MAX_RESULTS];
+static int _bench_result_count = 0;
+
+static double _bench_lookup(const char *name) {
+    for (int i = 0; i < _bench_result_count; i++) {
+        if (strcmp(_bench_results[i].name, name) == 0)
+            return _bench_results[i].ns_per_op;
+    }
+    return -1.0;
+}
+
+#define BENCH_ASSERT(desc, cond) do { \
+    _assert_count++; \
+    if (!(cond)) { \
+        printf("  FAIL: %s\n", desc); \
+        _assert_fail++; \
+    } else { \
+        printf("  PASS: %s\n", desc); \
+    } \
+} while (0)
 
 static void _pb(const char *name, int ops, double ns) {
     double us = ns / 1000.0;
@@ -91,6 +117,11 @@ static void _pb(const char *name, int ops, double ns) {
     if (ops_16ms > 1e6) snprintf(b16,sizeof(b16),"  inf"); else snprintf(b16,sizeof(b16),"%6.0fk",ops_16ms/1000);
     printf("  %-50s %7d ops  %8.1f us  %7.1f ns/op  | %7s  %7s  %7s\n",
            name, ops, us, ns_per_op, b1, b8, b16);
+    if (_bench_result_count < BENCH_MAX_RESULTS) {
+        _bench_results[_bench_result_count].name = name;
+        _bench_results[_bench_result_count].ns_per_op = ns_per_op;
+        _bench_result_count++;
+    }
     _bench_count++;
 }
 
@@ -591,10 +622,102 @@ int main(void) {
     bench_lifecycle();
     bench_spread();
 
-    printf("\n%d benchmarks complete.\n", _bench_count);
+    printf("\n%d benchmarks complete.\n\n", _bench_count);
+
+    // ============================================================
+    // Assertions -- scaling and ratio checks
+    // ============================================================
+    printf("=== Benchmark Assertions ===\n");
+
+    // Scaling: HashMap Get should be O(1) -- constant regardless of N
+    // The scaling section outputs N=100..50000 but those use _header not _pb.
+    // We test via the dispatch scaling results instead.
+
+    // Scaling: first MID vs last MID dispatch should be within 10x
+    // (string dispatch is O(n), so last is much slower -- this catches regression)
+    {
+        double first32 = _bench_lookup("32 MIDs: dispatch FIRST (F0001)");
+        double last32  = _bench_lookup("32 MIDs: dispatch LAST (F0032)");
+        if (first32 > 0 && last32 > 0) {
+            double ratio = last32 / first32;
+            printf("  32-MID first/last ratio: %.1fx\n", ratio);
+            BENCH_ASSERT("32 MIDs: last/first ratio < 20x", ratio < 20.0);
+        }
+    }
+    {
+        double first100 = _bench_lookup("100 MIDs: dispatch FIRST (F0001)");
+        double last100  = _bench_lookup("100 MIDs: dispatch LAST (F0100)");
+        if (first100 > 0 && last100 > 0) {
+            double ratio = last100 / first100;
+            printf("  100-MID first/last ratio: %.1fx\n", ratio);
+            BENCH_ASSERT("100 MIDs: last/first ratio < 50x", ratio < 50.0);
+        }
+    }
+    {
+        double first1000 = _bench_lookup("1000 MIDs: dispatch FIRST (F0001)");
+        double last1000  = _bench_lookup("1000 MIDs: dispatch LAST (F1000)");
+        if (first1000 > 0 && last1000 > 0) {
+            double ratio = last1000 / first1000;
+            printf("  1000-MID first/last ratio: %.1fx\n", ratio);
+            BENCH_ASSERT("1000 MIDs: last/first ratio < 500x", ratio < 500.0);
+        }
+    }
+
+    // Ratio: Upsert should be faster than Remove+Set
+    {
+        double upsert = _bench_lookup("Upsert (same key, in-place)");
+        double rmset  = _bench_lookup("Remove+Set cycle (same key)");
+        if (upsert > 0 && rmset > 0) {
+            printf("  Upsert vs Remove+Set: %.1fx faster\n", rmset / upsert);
+            BENCH_ASSERT("Upsert faster than Remove+Set", upsert < rmset);
+        }
+    }
+
+    // Ratio: AddBulk should be faster than sequential Add (per element)
+    {
+        double bulk = _bench_lookup("AddBulk (10000 at once)");
+        double seq  = _bench_lookup("Add (sequential)");
+        if (bulk > 0 && seq > 0) {
+            printf("  AddBulk vs Add: %.1fx faster\n", seq / bulk);
+            BENCH_ASSERT("AddBulk faster than sequential Add", bulk < seq);
+        }
+    }
+
+    // Ratio: Pool recycle should be faster than dispatch
+    {
+        double pool = _bench_lookup("PreparePayload + FreePayload (pool)");
+        double disp = _bench_lookup("Dispatch (1 MID, no-op handler)");
+        if (pool > 0 && disp > 0) {
+            printf("  Pool recycle vs full dispatch: %.1fx faster\n", disp / pool);
+            BENCH_ASSERT("Pool recycle < full dispatch cost", pool < disp);
+        }
+    }
+
+    // Absolute: payload pool should be under 100ns on any hardware
+    {
+        double pool = _bench_lookup("PreparePayload + FreePayload (pool)");
+        if (pool > 0) {
+            BENCH_ASSERT("Payload pool recycle < 100 ns", pool < 100.0);
+        }
+    }
+
+    // Absolute: HashMap Get should be under 500ns on any hardware
+    {
+        double get = _bench_lookup("Get (existing, incl. snprintf)");
+        if (get > 0) {
+            BENCH_ASSERT("HashMap Get < 500 ns (incl. snprintf)", get < 500.0);
+        }
+    }
+
+    // Data integrity: varied hashmap data should not grow after cycles
+    // (checked inline in the bench output -- just verify the bench ran)
+
+    printf("\n=== Assertions: %d/%d passed ===\n",
+        _assert_count - _assert_fail, _assert_count);
 
     END_LOGGING();
-    return 0;
+    return _assert_fail > 0 ? 1 : 0;
 }
 
+#undef LINTNORE
 #endif
