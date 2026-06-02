@@ -294,6 +294,16 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 #define Payload_SetValue(payload, str_key, type, value) \
     Payload_Set(payload, str_key, &(type){value}, sizeof(type))
 
+// Overwrites an existing key or creates a new one.
+//   Payload_OverwriteValue(payload, "health", int, 200);
+#define Payload_Overwrite(payload, str_key, value_ptr, value_size) do { \
+    UnsafeVariedHashMap_SRemove((payload)->data, str_key); \
+    UnsafeVariedHashMap_SSet((payload)->data, str_key, value_ptr, value_size); \
+} while (0)
+
+#define Payload_OverwriteValue(payload, str_key, type, value) \
+    Payload_Overwrite(payload, str_key, &(type){value}, sizeof(type))
+
 // Returns a void* to the stored data, or NULL if not found.
 //   int *hp = (int*)Payload_Get(payload, "health");
 #define Payload_Get(payload, str_key) \

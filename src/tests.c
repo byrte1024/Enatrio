@@ -17,6 +17,7 @@
 #include "tests/SerializationTests.h"
 #include "tests/ByteStreamTests.h"
 #include "tests/InheritanceTests.h"
+#include "tests/GameObjectTests.h"
 
 int main(void) {
     START_LOGGING("tests", LOG_INFO);
@@ -34,6 +35,7 @@ int main(void) {
     run_serialization_tests();
     run_bytestream_tests();
     run_inheritance_tests();
+    run_gameobject_tests();
 
     LOG_INFO("=== Results: %d/%d passed ===", tests_passed, tests_run);
 
