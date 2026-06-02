@@ -190,6 +190,18 @@ static inline void Object_StoreRef(TempObjectReference obj, const char *key, uin
 #define Object_SStoreRef(obj, str_key, target) \
     Object_StoreRef(obj, str_key, _UNSAFE_STRLITERAL_LEN(str_key), target)
 
+static inline void Object_RemoveRef(TempObjectReference obj, const char *key, uint32_t key_len) {
+    if (obj == NULL || obj->data == NULL) return;
+    if (UnsafeHashMap_Has(obj->data->references, key, key_len)) {
+        ObjectReference *old = (ObjectReference*)UnsafeHashMap_Get(obj->data->references, key, key_len);
+        ObjectContainer_UnRef_Internal(old);
+        UnsafeHashMap_Remove(obj->data->references, key, key_len);
+    }
+}
+
+#define Object_SRemoveRef(obj, str_key) \
+    Object_RemoveRef(obj, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+
 static inline TempObjectReference Object_GetRef(TempObjectReference obj, const char *key, uint32_t key_len) {
     if (obj == NULL || obj->data == NULL) return NULL;
     void *ptr = UnsafeHashMap_Get(obj->data->references, key, key_len);

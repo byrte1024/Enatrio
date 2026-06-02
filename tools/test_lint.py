@@ -222,6 +222,11 @@ def main():
     expect_rule("r102_ignore_base_create.h", "R102", should_trigger=True)
     expect_rule("inherit_ok.h", "R102", should_trigger=False)
 
+    # R110: Direct use of reserved consumed key
+    print("--- R110: Direct use of __go_consumed__ key ---")
+    expect_rule("r110_direct_consumed_key.h", "R110", should_trigger=True)
+    expect_rule("r110_ok_spread_consume.h", "R110", should_trigger=False)
+
     # all_ok.h should be completely clean
     print("--- Full clean file ---")
     expect_clean("all_ok.h")

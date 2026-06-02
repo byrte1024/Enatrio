@@ -613,12 +613,12 @@ static void test_class_payload_multiple_types(void) {
     PASS();
 }
 
-static void test_class_payload_duplicate_key(void) {
-    TEST("class: duplicate key returns -1");
+static void test_class_payload_overwrite_key(void) {
+    TEST("class: duplicate key overwrites value");
     MessagePayload msg = PreparePayload(CID_Calculator, MID_Calculator_Add);
     Payload_SetValue(&msg, "k", int, 5);
-    ASSERT(Payload_Set(&msg, "k", &(int){10}, sizeof(int)) == -1);
-    ASSERT(Payload_GetDeref(&msg, "k", int) == 5);
+    Payload_SetValue(&msg, "k", int, 10);
+    ASSERT(Payload_GetDeref(&msg, "k", int) == 10);
     FreePayload(&msg);
     PASS();
 }
@@ -738,6 +738,6 @@ static void run_class_tests(void) {
     test_class_free_payload_safe();
     test_class_payload_set_get();
     test_class_payload_multiple_types();
-    test_class_payload_duplicate_key();
+    test_class_payload_overwrite_key();
     test_class_payload_dispatch_roundtrip();
 }

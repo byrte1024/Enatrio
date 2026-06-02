@@ -284,12 +284,12 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     return payload;
 }
 
-// Stores raw bytes into the payload.
+// Stores raw bytes into the payload (create or update).
 //   Payload_Set(payload, "data", &my_struct, sizeof(MyStruct));
 #define Payload_Set(payload, str_key, value_ptr, value_size) \
-    UnsafeVariedHashMap_SSet((payload)->data, str_key, value_ptr, value_size)
+    UnsafeVariedHashMap_SUpsert((payload)->data, str_key, value_ptr, value_size)
 
-// Stores a typed value (takes the address for you via compound literal).
+// Stores a typed value (create or update).
 //   Payload_SetValue(payload, "health", int, 100);
 #define Payload_SetValue(payload, str_key, type, value) \
     Payload_Set(payload, str_key, &(type){value}, sizeof(type))
@@ -384,12 +384,12 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 
 // ---- Setters ----
 
-// Stores raw bytes into the payload data.
+// Stores raw bytes into the payload data (create or update).
 //   MH_Set(result, &my_data, sizeof(my_data));
 #define MH_Set(paramname, value_ptr, value_size) \
-    UnsafeVariedHashMap_SSet(payload->data, STR(paramname), value_ptr, value_size)
+    UnsafeVariedHashMap_SUpsert(payload->data, STR(paramname), value_ptr, value_size)
 
-// Stores a typed value into the payload data (takes the address for you).
+// Stores a typed value into the payload data (create or update).
 //   int result = a + b;
 //   MH_SetValue(result, int, result);
 #define MH_SetValue(paramname, type, var) \

@@ -1,0 +1,445 @@
+#pragma once
+
+#include "ObjectTypes.h"
+
+// ============================================================
+// GameObject constants
+// ============================================================
+
+#define SPREAD_DOWN 0
+#define SPREAD_UP   1
+#define _GO_CONSUMED_KEY "__go_consumed__"
+
+// SPREAD_CONSUME stops propagation into the current node's subtree.
+// Only effective during SPREAD_DOWN. In SPREAD_UP, children are
+// visited before self, so there is nothing left to skip.
+#define SPREAD_CONSUME(payload) Payload_SetValue(payload, _GO_CONSUMED_KEY, int, 1)
+
+#define _GO_CHILD_KEY_MAX 24
+
+static inline uint32_t _go_child_key(char *buf, int index) {
+    int len = snprintf(buf, _GO_CHILD_KEY_MAX, "child_%d", index);
+    if (len < 0) len = 0;
+    return (uint32_t)len;
+}
+
+// ============================================================
+// Class definition
+// ============================================================
+
+#define TYPE GameObject
+
+BEGIN_CLASS(0x0003);
+INHERITS(Object);
+
+DECLARE_SELF_MID(SpreadMessage);
+DECLARE_SELF_MID(AddChild);
+DECLARE_SELF_MID(RemoveChild);
+DECLARE_SELF_MID(SetActive);
+DECLARE_SELF_MID(SetPriority);
+DECLARE_SELF_MID(Update);
+DECLARE_SELF_MID(Render);
+
+// ============================================================
+// Internal helpers
+// ============================================================
+
+static inline ClassID _go_find_spread_handler(ClassID cid) {
+    ClassID walk = cid;
+    while (!CLASSID_ISUNTYPED(walk)) {
+        if (!CLASSID_ISREGISTERED(walk)) return CID_Untyped;
+        if (ClassDefinitions[walk].CanReceiveMID(MID_GameObject_SELF_SpreadMessage))
+            return walk;
+        walk = ClassDefinitions[walk].parent_cid;
+    }
+    return CID_Untyped;
+}
+
+#define _GO_SPREAD_STACK_MAX 64
+
+// Snapshot-based child iteration. Acquires a temporary external ref on
+// each snapshotted child so they cannot be freed during the spread.
+// direction and reverse are passed as C params to avoid re-reading them
+// from the payload on every recursive call.
+#define LINTNORE
+static void _go_spread_to_children(
+    TempObjectReference self_node,
+    MessagePayload *outer_payload,
+    int child_count, int reverse)
+{
+    if (child_count <= 0) return;
+
+    TempObjectReference stack_buf[_GO_SPREAD_STACK_MAX];
+    TempObjectReference *snapshot = stack_buf;
+    if (child_count > _GO_SPREAD_STACK_MAX) {
+        snapshot = (TempObjectReference *)malloc(sizeof(TempObjectReference) * child_count);
+        if (!snapshot) return;
+    }
+
+    // Build snapshot + acquire refs to keep children alive
+    int snap_count = 0;
+    int start = reverse ? child_count - 1 : 0;
+    int end   = reverse ? -1 : child_count;
+    int step  = reverse ? -1 : 1;
+    for (int i = start; i != end; i += step) {
+        char kbuf[_GO_CHILD_KEY_MAX];
+        uint32_t klen = _go_child_key(kbuf, i);
+        TempObjectReference ch = Object_GetRef(self_node, kbuf, klen);
+        if (ch != NULL) {
+            ch->external_refs++;
+            snapshot[snap_count++] = ch;
+        }
+    }
+
+    for (int i = 0; i < snap_count; i++) {
+        TempObjectReference ch = snapshot[i];
+
+        // Skip if destroyed (data freed by an earlier handler in this spread)
+        if (ch->data == NULL) goto release;
+
+        void *ap = _Object_GetValueData(ch->data->values, "active", 6);
+        if (ap && *(int *)ap == 0) goto release;
+
+        ClassID handler_cid = _go_find_spread_handler(ch->cid);
+        if (CLASSID_ISUNTYPED(handler_cid)) goto release;
+
+        Payload_SetValue(outer_payload, "Self", TempObjectReference, ch);
+        outer_payload->cid_target = ch->cid;
+        ClassDefinitions[handler_cid].ReceiveMessage(outer_payload);
+
+    release:
+        ch->external_refs--;
+        if (ObjectContainer_TotalRefs(ch) <= 0) {
+            if (ch->data != NULL) ObjectContainer_EmptyFilledTyped(ch);
+            if (ch->cid != CID_Untyped) ObjectContainer_UntypeEmptyTyped(ch);
+            _ObjectRegistry_Unregister(ch);
+            free(ch);
+        }
+    }
+
+    if (snapshot != stack_buf) free(snapshot);
+}
+#undef LINTNORE
+
+// ============================================================
+// SELF_Create (extern Object)
+// ============================================================
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
+    Self_SetValue("active", int, 1);
+    Self_SetValue("child_count", int, 0);
+    Self_SetValue("priority", int, 0);
+MESSAGE_HANDLER_END()
+
+// ============================================================
+// SELF_Destroy (extern Object)
+// ============================================================
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+
+// ============================================================
+// SELF_Update / SELF_Render -- no-op defaults, override in subclasses
+// ============================================================
+
+SELF_MESSAGE_HANDLER_BEGIN(Update)
+    (void)Self;
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN(Render)
+    (void)Self;
+MESSAGE_HANDLER_END()
+
+// ============================================================
+// SELF_SetActive
+// ============================================================
+
+SELF_MESSAGE_HANDLER_BEGIN(SetActive)
+    MH_ExtractDeref(active, int);
+    Self_SetValue("active", int, active);
+MESSAGE_HANDLER_END()
+
+// ============================================================
+// SELF_AddChild
+// ============================================================
+
+SELF_MESSAGE_HANDLER_BEGIN(AddChild)
+    MH_ExtractDeref(child, TempObjectReference);
+    int count = Self_GetDeref("child_count", int);
+
+    int child_priority = 0;
+    {
+        void *pp = _Object_GetValueData(child->data->values, "priority", 8);
+        if (pp) child_priority = *(int *)pp;
+    }
+
+    int insert_idx = count;
+    for (int i = 0; i < count; i++) {
+        char kbuf[_GO_CHILD_KEY_MAX];
+        uint32_t klen = _go_child_key(kbuf, i);
+        TempObjectReference existing = Object_GetRef(Self, kbuf, klen);
+        if (existing == NULL) continue;
+        void *ep = _Object_GetValueData(existing->data->values, "priority", 8);
+        int epri = ep ? *(int *)ep : 0;
+        if (epri > child_priority) {
+            insert_idx = i;
+            break;
+        }
+    }
+
+    for (int i = count; i > insert_idx; i--) {
+        char src_buf[_GO_CHILD_KEY_MAX];
+        uint32_t src_len = _go_child_key(src_buf, i - 1);
+        TempObjectReference moved = Object_GetRef(Self, src_buf, src_len);
+
+        char dst_buf[_GO_CHILD_KEY_MAX];
+        uint32_t dst_len = _go_child_key(dst_buf, i);
+        Object_StoreRef(Self, dst_buf, dst_len, moved);
+    }
+
+    {
+        char kbuf[_GO_CHILD_KEY_MAX];
+        uint32_t klen = _go_child_key(kbuf, insert_idx);
+        Object_StoreRef(Self, kbuf, klen, child);
+    }
+
+    Object_SStoreRef(child, "parent", Self);
+    Self_SetValue("child_count", int, count + 1);
+MESSAGE_HANDLER_END()
+
+// ============================================================
+// SELF_RemoveChild
+// ============================================================
+
+SELF_MESSAGE_HANDLER_BEGIN(RemoveChild)
+    MH_ExtractDeref(child, TempObjectReference);
+    int count = Self_GetDeref("child_count", int);
+
+    int found_idx = -1;
+    for (int i = 0; i < count; i++) {
+        char kbuf[_GO_CHILD_KEY_MAX];
+        uint32_t klen = _go_child_key(kbuf, i);
+        TempObjectReference existing = Object_GetRef(Self, kbuf, klen);
+        if (existing == child) {
+            found_idx = i;
+            break;
+        }
+    }
+
+    if (found_idx < 0) {
+        payload->result = MESSAGE_RESULT_NOT_FOUND;
+        return;
+    }
+
+    Object_SRemoveRef(child, "parent");
+
+    {
+        char kbuf[_GO_CHILD_KEY_MAX];
+        uint32_t klen = _go_child_key(kbuf, found_idx);
+        Object_RemoveRef(Self, kbuf, klen);
+    }
+
+    for (int i = found_idx; i < count - 1; i++) {
+        char src_buf[_GO_CHILD_KEY_MAX];
+        uint32_t src_len = _go_child_key(src_buf, i + 1);
+        TempObjectReference moved = Object_GetRef(Self, src_buf, src_len);
+
+        char dst_buf[_GO_CHILD_KEY_MAX];
+        uint32_t dst_len = _go_child_key(dst_buf, i);
+        Object_StoreRef(Self, dst_buf, dst_len, moved);
+    }
+
+    {
+        char kbuf[_GO_CHILD_KEY_MAX];
+        uint32_t klen = _go_child_key(kbuf, count - 1);
+        Object_RemoveRef(Self, kbuf, klen);
+    }
+
+    Self_SetValue("child_count", int, count - 1);
+MESSAGE_HANDLER_END()
+
+// ============================================================
+// SELF_SetPriority
+// ============================================================
+
+#define LINTNORE
+SELF_MESSAGE_HANDLER_BEGIN(SetPriority)
+    MH_ExtractDeref(priority, int);
+    Self_SetValue("priority", int, priority);
+
+    TempObjectReference parent = Self_GetRef("parent");
+    if (parent != NULL) {
+        ExternalReference _guard = ObjectContainer_ExternalRef_From_Temp(Self);
+        SELF_DISPATCH(parent, MID_GameObject_SELF_RemoveChild, {
+            Payload_SetValue(msg, "child", TempObjectReference, Self);
+        }, {});
+        uint8_t add_result = SELF_DISPATCH(parent, MID_GameObject_SELF_AddChild, {
+            Payload_SetValue(msg, "child", TempObjectReference, Self);
+        }, {});
+        if (!MESSAGE_RESULT_ISOK(add_result)) {
+            LOG_ERROR("SetPriority: AddChild failed (%s), object orphaned",
+                MESSAGE_RESULT_NAME(add_result));
+        }
+        ObjectContainer_UnRef_External(&_guard);
+    }
+MESSAGE_HANDLER_END()
+#undef LINTNORE
+
+// ============================================================
+// SELF_SpreadMessage
+//
+// NOTE: Child iteration uses a snapshot with held refs. Adding or
+// removing children during a spread is safe. Newly added children
+// will NOT receive the current message. Removed children are skipped
+// if their data was freed.
+// ============================================================
+
+SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
+    MH_ExtractDeref(inner, MessagePayload*);
+
+    int spread_direction = 0;
+    {
+        void *sd = Payload_Get(inner, "spread_direction");
+        if (sd) spread_direction = *(int *)sd;
+    }
+
+    int spread_reverse = 0;
+    {
+        void *sr = Payload_Get(inner, "spread_reverse");
+        if (sr) spread_reverse = *(int *)sr;
+    }
+
+    int child_count = Self_GetDeref("child_count", int);
+    TempObjectReference orig_inner_self = Payload_GetDeref(inner, "Self", TempObjectReference);
+
+    if (spread_direction == SPREAD_DOWN) {
+        Payload_SetValue(inner, "Self", TempObjectReference, Self);
+        inner->cid_target = Self->cid;
+        DispatchMessage(inner);
+
+        int consumed = 0;
+        {
+            void *cp = Payload_Get(inner, _GO_CONSUMED_KEY);
+            if (cp) consumed = *(int *)cp;
+        }
+        if (consumed) {
+            Payload_SetValue(inner, _GO_CONSUMED_KEY, int, 0);
+        } else {
+            _go_spread_to_children(Self, payload, child_count, spread_reverse);
+        }
+    } else {
+        // SPREAD_UP: children first, then self.
+        // SPREAD_CONSUME has no effect in this mode.
+        _go_spread_to_children(Self, payload, child_count, spread_reverse);
+
+        Payload_SetValue(inner, "Self", TempObjectReference, Self);
+        inner->cid_target = Self->cid;
+        DispatchMessage(inner);
+
+        {
+            void *cp = Payload_Get(inner, _GO_CONSUMED_KEY);
+            if (cp && *(int *)cp != 0) {
+                Payload_SetValue(inner, _GO_CONSUMED_KEY, int, 0);
+            }
+        }
+    }
+
+    Payload_SetValue(inner, "Self", TempObjectReference, orig_inner_self);
+MESSAGE_HANDLER_END()
+
+// ============================================================
+// CAN_RECEIVE / RECEIVE_MESSAGE
+// ============================================================
+
+CAN_RECEIVE_BEGIN()
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
+    SELF_CAN_RECEIVE_MID(SpreadMessage)
+    SELF_CAN_RECEIVE_MID(AddChild)
+    SELF_CAN_RECEIVE_MID(RemoveChild)
+    SELF_CAN_RECEIVE_MID(SetActive)
+    SELF_CAN_RECEIVE_MID(SetPriority)
+    SELF_CAN_RECEIVE_MID(Update)
+    SELF_CAN_RECEIVE_MID(Render)
+CAN_RECEIVE_END()
+
+RECEIVE_MESSAGE_BEGIN()
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE(SpreadMessage)
+    SELF_RECEIVE_MESSAGE_ROUTE(AddChild)
+    SELF_RECEIVE_MESSAGE_ROUTE(RemoveChild)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetActive)
+    SELF_RECEIVE_MESSAGE_ROUTE(SetPriority)
+    SELF_RECEIVE_MESSAGE_ROUTE(Update)
+    SELF_RECEIVE_MESSAGE_ROUTE(Render)
+RECEIVE_MESSAGE_END()
+
+CLASSDEF_INHERITS(Object)
+
+#undef TYPE
+
+// ============================================================
+// Helper functions
+// ============================================================
+
+static inline TempObjectReference GameObject_CreateRoot(ClassID cid) {
+    return Object_Create(cid);
+}
+
+static inline ExternalReference GameObject_CreateRootRef(ClassID cid) {
+    return Object_CreateRef(cid);
+}
+
+static inline TempObjectReference GameObject_CreateChild(TempObjectReference parent, ClassID child_cid) {
+    if (parent == NULL) return NULL;
+    TempObjectReference child = Object_Create(child_cid);
+    if (child == NULL) return NULL;
+    SELF_DISPATCH(parent, MID_GameObject_SELF_AddChild, {
+        Payload_SetValue(msg, "child", TempObjectReference, child);
+    }, {});
+    return child;
+}
+
+static inline ExternalReference GameObject_CreateChildRef(TempObjectReference parent, ClassID child_cid) {
+    if (parent == NULL) return NULL;
+    TempObjectReference child = Object_Create(child_cid);
+    if (child == NULL) return NULL;
+    ExternalReference ref = ObjectContainer_ExternalRef_From_Temp(child);
+    SELF_DISPATCH(parent, MID_GameObject_SELF_AddChild, {
+        Payload_SetValue(msg, "child", TempObjectReference, child);
+    }, {});
+    return ref;
+}
+
+// ============================================================
+// GAMEOBJECT_DISPATCH macro
+// ============================================================
+
+#define GAMEOBJECT_DISPATCH(root, mid, direction, params_block, out_block) ({ \
+    TempObjectReference _gd_root = (root); \
+    uint8_t _gd_result = MESSAGE_RESULT_INVALID_SELF; \
+    if (_gd_root == NULL) { LOG_ERROR("GAMEOBJECT_DISPATCH: NULL root"); } \
+    else { \
+        MessagePayload _gd_inner = PrepareSelfPayload(_gd_root, mid); \
+        MessagePayload *msg = &_gd_inner; \
+        if (msg->data == NULL) { _gd_result = MESSAGE_RESULT_OOM; } \
+        else { \
+            Payload_SetValue(msg, "spread_direction", int, direction); \
+            params_block \
+            MessagePayload _gd_outer = PrepareSelfPayload(_gd_root, MID_GameObject_SELF_SpreadMessage); \
+            if (_gd_outer.data == NULL) { _gd_result = MESSAGE_RESULT_OOM; } \
+            else { \
+                Payload_SetValue(&_gd_outer, "inner", MessagePayload*, &_gd_inner); \
+                DispatchMessage(&_gd_outer); \
+                out_block \
+                _gd_result = _gd_outer.result; \
+            } \
+            FreePayload(&_gd_outer); \
+        } \
+        FreePayload(msg); \
+    } \
+    _gd_result; \
+})

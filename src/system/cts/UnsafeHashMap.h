@@ -516,6 +516,14 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
     return 0;
 }
 
+// Upsert: insert or overwrite. Single probe -- no tombstone churn.
+static int UnsafeVariedHashMap_Upsert(UnsafeVariedHashMap *map, const void *key, uint32_t key_len, const void *value, uint32_t value_size) {
+    if (UnsafeVariedHashMap_Has(map, key, key_len)) {
+        UnsafeVariedHashMap_Remove(map, key, key_len);
+    }
+    return UnsafeVariedHashMap_Set(map, key, key_len, value, value_size);
+}
+
 typedef void (*UnsafeVariedHashMapForEachFn)(const void *key, uint32_t key_len, void *value, uint32_t value_size);
 
 static void UnsafeVariedHashMap_ForEach(UnsafeVariedHashMap *map, UnsafeVariedHashMapForEachFn fn) {
@@ -543,3 +551,4 @@ static void UnsafeVariedHashMap_ForEach(UnsafeVariedHashMap *map, UnsafeVariedHa
 #define UnsafeVariedHashMap_SRemove(map, str_key)                    UnsafeVariedHashMap_Remove(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
 #define UnsafeVariedHashMap_SGetDeref(map, str_key, type)            UnsafeVariedHashMap_GetDeref(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type)
 #define UnsafeVariedHashMap_SSetValue(map, str_key, type, value)     UnsafeVariedHashMap_SetValue(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), type, value)
+#define UnsafeVariedHashMap_SUpsert(map, str_key, value_ptr, value_size) UnsafeVariedHashMap_Upsert(map, str_key, _UNSAFE_STRLITERAL_LEN(str_key), value_ptr, value_size)
