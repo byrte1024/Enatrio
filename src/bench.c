@@ -1,4 +1,5 @@
 #ifdef INBENCH
+#define LINTNORE
 
 #define _POSIX_C_SOURCE 199309L
 #include <stdio.h>
@@ -718,4 +719,5 @@ int main(void) {
     return _assert_fail > 0 ? 1 : 0;
 }
 
+#undef LINTNORE
 #endif
