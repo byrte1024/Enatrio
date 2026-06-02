@@ -54,20 +54,40 @@ static inline ClassID _go_find_spread_handler(ClassID cid) {
     return CID_Untyped;
 }
 
+#define _GO_SPREAD_STACK_MAX 64
+
 static void _go_spread_to_children(
     TempObjectReference self_node,
     MessagePayload *outer_payload,
     int child_count, int reverse)
 {
+    if (child_count <= 0) return;
+
+    // Snapshot child pointers so mutations during spread are safe
+    TempObjectReference stack_buf[_GO_SPREAD_STACK_MAX];
+    TempObjectReference *snapshot = stack_buf;
+    if (child_count > _GO_SPREAD_STACK_MAX) {
+        snapshot = (TempObjectReference *)malloc(sizeof(TempObjectReference) * child_count);
+        if (!snapshot) return;
+    }
+
+    // Build snapshot in iteration order
+    int snap_count = 0;
     int start = reverse ? child_count - 1 : 0;
     int end   = reverse ? -1 : child_count;
     int step  = reverse ? -1 : 1;
-
     for (int i = start; i != end; i += step) {
         char kbuf[_GO_CHILD_KEY_MAX];
         uint32_t klen = _go_child_key(kbuf, i);
         TempObjectReference ch = Object_GetRef(self_node, kbuf, klen);
-        if (ch == NULL || ch->data == NULL) continue;
+        if (ch != NULL) snapshot[snap_count++] = ch;
+    }
+
+    // Iterate snapshot
+    for (int i = 0; i < snap_count; i++) {
+        TempObjectReference ch = snapshot[i];
+        // Child may have been freed by a previous handler in this spread
+        if (ch->data == NULL) continue;
 
         void *ap = _Object_GetValueData(ch->data->values, "active", 6);
         if (ap && *(int *)ap == 0) continue;
@@ -79,6 +99,8 @@ static void _go_spread_to_children(
         outer_payload->cid_target = ch->cid;
         ClassDefinitions[handler_cid].ReceiveMessage(outer_payload);
     }
+
+    if (snapshot != stack_buf) free(snapshot);
 }
 
 // ============================================================
@@ -265,10 +287,11 @@ MESSAGE_HANDLER_END()
 // ============================================================
 // SELF_SpreadMessage
 //
-// WARNING: Do not add or remove children from a node that is
-// currently being iterated by SpreadMessage. The cached child_count
-// and loop index will be stale, causing skipped or double-visited
-// children. Defer mutations to after the spread completes.
+// NOTE: Child iteration uses a snapshot of the child list taken before
+// iteration begins. Adding or removing children during a spread is safe
+// (no crash or stale index), but newly added children will NOT receive
+// the current message, and removed children may still be visited if they
+// were in the snapshot (they are skipped if their data is NULL).
 // ============================================================
 
 SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
