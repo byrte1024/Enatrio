@@ -30,12 +30,19 @@ static void UnsafeArray_Destroy(UnsafeArray *arr) {
 }
 
 // Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
-static void *UnsafeArray_Get(UnsafeArray *arr, uint32_t index) {
+// Bounds-checked get -- returns NULL for out-of-bounds indices.
+static inline void *UnsafeArray_Get(UnsafeArray *arr, uint32_t index) {
+    if (index >= arr->count) return NULL;
     return arr->data + (size_t)index * arr->element_size;
 }
 
-// Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
-static void UnsafeArray_Set(UnsafeArray *arr, uint32_t index, const void *value) {
+// Unchecked get -- no bounds check, no branch. For internal use where
+// the index is guaranteed valid by construction (e.g. hashmap/dict internals).
+static inline void *UnsafeArray_GetFast(UnsafeArray *arr, uint32_t index) {
+    return arr->data + (size_t)index * arr->element_size;
+}
+
+static inline void UnsafeArray_Set(UnsafeArray *arr, uint32_t index, const void *value) {
     memcpy(arr->data + (size_t)index * arr->element_size, value, arr->element_size);
 }
 
@@ -87,8 +94,39 @@ static void UnsafeArray_Clear(UnsafeArray *arr) {
     arr->count = 0;
 }
 
-// Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
+static int UnsafeArray_AddBulk(UnsafeArray *arr, const void *data, uint32_t count) {
+    if (count == 0) return 0;
+    uint64_t needed = (uint64_t)arr->count + count;
+    if (needed > UINT32_MAX) return -1;
+    if ((uint32_t)needed > arr->capacity) {
+        uint32_t new_cap = arr->capacity;
+        while (new_cap < (uint32_t)needed) {
+            if (new_cap > UINT32_MAX / 2) { new_cap = UINT32_MAX; break; }
+            new_cap *= 2;
+        }
+        uint8_t *newbuf = (uint8_t *)realloc(arr->data, (size_t)new_cap * arr->element_size);
+        if (!newbuf) return -1;
+        arr->data = newbuf;
+        arr->capacity = new_cap;
+    }
+    memcpy(arr->data + (size_t)arr->count * arr->element_size,
+           data, (size_t)count * arr->element_size);
+    arr->count += count;
+    return 0;
+}
+
+static int UnsafeArray_ShrinkToFit(UnsafeArray *arr) {
+    uint32_t target = arr->count > 0 ? arr->count : 1;
+    if (target == arr->capacity) return 0;
+    uint8_t *newbuf = (uint8_t *)realloc(arr->data, (size_t)target * arr->element_size);
+    if (!newbuf) return -1;
+    arr->data = newbuf;
+    arr->capacity = target;
+    return 0;
+}
+
 #define UnsafeArray_GetDeref(arr, index, type) (*(type *)UnsafeArray_Get(arr, index))
+#define UnsafeArray_GetDerefFast(arr, index, type) (*(type *)UnsafeArray_GetFast(arr, index))
 
 #define UnsafeArray_SetValue(arr, index, type, value) \
     UnsafeArray_Set(arr, index, &(type){value})
@@ -148,6 +186,75 @@ static void UnsafeArray_Log(UnsafeArray *arr, UnsafeArrayFormatter fmt) {
 // Inspects the conversion specifier to choose float vs integer dispatch,
 // since void* values need to be reinterpreted before snprintf.
 // ============================================================
+
+// ============================================================
+// Shared varied-data allocator -- used by UnsafeVariedHashMap
+// and UnsafeVariedDictionary for data buffer region management.
+// Defined here because it depends only on UnsafeArray.
+// ============================================================
+
+typedef struct {
+    uint32_t offset;
+    uint32_t size;
+} _UnsafeVariedFreeRegion;
+
+static void _UnsafeVaried_FreeData(UnsafeArray *data_free_list, uint32_t offset, uint32_t size) {
+    if (size == 0) return;
+    for (uint32_t i = 0; i < data_free_list->count; i++) {
+        _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_GetFast(data_free_list, i);
+        if (r->offset + r->size == offset) {
+            r->size += size;
+            for (uint32_t j = 0; j < data_free_list->count; j++) {
+                if (j == i) continue;
+                _UnsafeVariedFreeRegion *r2 = (_UnsafeVariedFreeRegion *)UnsafeArray_GetFast(data_free_list, j);
+                if (r->offset + r->size == r2->offset) {
+                    r->size += r2->size;
+                    UnsafeArray_RemoveSwap(data_free_list, j);
+                    break;
+                }
+            }
+            return;
+        }
+        if (offset + size == r->offset) {
+            r->offset = offset;
+            r->size += size;
+            for (uint32_t j = 0; j < data_free_list->count; j++) {
+                if (j == i) continue;
+                _UnsafeVariedFreeRegion *r2 = (_UnsafeVariedFreeRegion *)UnsafeArray_GetFast(data_free_list, j);
+                if (r2->offset + r2->size == r->offset) {
+                    r2->size += r->size;
+                    UnsafeArray_RemoveSwap(data_free_list, i);
+                    break;
+                }
+            }
+            return;
+        }
+    }
+    _UnsafeVariedFreeRegion region = { offset, size };
+    UnsafeArray_Add(data_free_list, &region);
+}
+
+static uint32_t _UnsafeVaried_WriteData(UnsafeArray *data, UnsafeArray *data_free_list,
+                                         const void *value, uint32_t value_size) {
+    if (value_size == 0) return data->count;
+    for (uint32_t i = 0; i < data_free_list->count; i++) {
+        _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_GetFast(data_free_list, i);
+        if (r->size >= value_size) {
+            uint32_t offset = r->offset;
+            memcpy(data->data + offset, value, value_size);
+            if (r->size > value_size) {
+                r->offset += value_size;
+                r->size -= value_size;
+            } else {
+                UnsafeArray_RemoveSwap(data_free_list, i);
+            }
+            return offset;
+        }
+    }
+    uint32_t offset = data->count;
+    UnsafeArray_AddBulk(data, value, value_size);
+    return offset;
+}
 
 static void _unsafe_fmt_snprintf(const void *v, char *b, uint32_t s, const char *fmt, uint32_t elem_size) {
     // Find the last conversion character in the format string

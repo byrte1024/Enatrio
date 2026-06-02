@@ -354,6 +354,302 @@ static void test_varied_hashmap_getderef_missing_key(void) {
     PASS();
 }
 
+// ============================================================
+// Helpers for new tests
+// ============================================================
+
+static int _verify_bytes_hm(uint8_t *buf, uint32_t offset, const uint8_t *expected, uint32_t len) {
+    for (uint32_t i = 0; i < len; i++) {
+        if (buf[offset + i] != expected[i]) return 0;
+    }
+    return 1;
+}
+
+static int _hm_foreach_count = 0;
+static void _hm_foreach_counter(const void *key, uint32_t key_len, void *value) {
+    (void)key; (void)key_len; (void)value;
+    _hm_foreach_count++;
+}
+
+// ============================================================
+// Contract tests (should PASS)
+// ============================================================
+
+static void test_hm_contract_set_duplicate_neg1(void) {
+    TEST("hashmap contract: Set duplicate returns -1, value unchanged");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int val = 42, val2 = 99;
+    ASSERT(UnsafeHashMap_SSet(map, "key", &val) == 0);
+    ASSERT(UnsafeHashMap_SSet(map, "key", &val2) == -1);
+    ASSERT(UnsafeHashMap_SGetDeref(map, "key", int) == 42);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_contract_remove_then_get_null(void) {
+    TEST("hashmap contract: Remove then Get returns NULL");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int val = 42;
+    ASSERT(UnsafeHashMap_SSet(map, "key", &val) == 0);
+    ASSERT(UnsafeHashMap_SRemove(map, "key") == 0);
+    ASSERT(UnsafeHashMap_SGet(map, "key") == NULL);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_contract_foreach_visits_all(void) {
+    TEST("hashmap contract: ForEach visits all 5 entries");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 1, v2 = 2, v3 = 3, v4 = 4, v5 = 5;
+    UnsafeHashMap_SSet(map, "a", &v1);
+    UnsafeHashMap_SSet(map, "b", &v2);
+    UnsafeHashMap_SSet(map, "c", &v3);
+    UnsafeHashMap_SSet(map, "d", &v4);
+    UnsafeHashMap_SSet(map, "e", &v5);
+    _hm_foreach_count = 0;
+    UnsafeHashMap_ForEach(map, _hm_foreach_counter);
+    ASSERT(_hm_foreach_count == 5);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_contract_rehash_transparent(void) {
+    TEST("hashmap contract: 100 inserts survive rehash");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 4);
+    char key[32];
+    for (int i = 0; i < 100; i++) {
+        int len = snprintf(key, sizeof(key), "key_%d", i);
+        ASSERT(UnsafeHashMap_Set(map, key, (uint32_t)len, &i) == 0);
+    }
+    for (int i = 0; i < 100; i++) {
+        int len = snprintf(key, sizeof(key), "key_%d", i);
+        int *val = (int *)UnsafeHashMap_Get(map, key, (uint32_t)len);
+        ASSERT(val != NULL && *val == i);
+    }
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_contract_remove_nonexistent(void) {
+    TEST("hashmap contract: Remove nonexistent returns -1");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    ASSERT(UnsafeHashMap_SRemove(map, "never_set") == -1);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+// ============================================================
+// Contract tests (will FAIL -- Upsert is a stub)
+// ============================================================
+
+static void test_hm_contract_upsert_creates(void) {
+    TEST("hashmap contract: Upsert creates new entry");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int val = 42;
+    ASSERT(UnsafeHashMap_SUpsert(map, "new_key", &val) == 0);
+    ASSERT(UnsafeHashMap_SGet(map, "new_key") != NULL);
+    ASSERT(UnsafeHashMap_SGetDeref(map, "new_key", int) == 42);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_contract_upsert_overwrites(void) {
+    TEST("hashmap contract: Upsert overwrites existing value");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    ASSERT(UnsafeHashMap_SSet(map, "key", &v1) == 0);
+    uint32_t count_before = map->entry_count;
+    ASSERT(UnsafeHashMap_SUpsert(map, "key", &v2) == 0);
+    ASSERT(UnsafeHashMap_SGetDeref(map, "key", int) == 99);
+    ASSERT(map->entry_count == count_before);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+// ============================================================
+// Metric tests (target behavior -- may FAIL)
+// ============================================================
+
+static void test_hm_metric_remove_set_reuses_slot(void) {
+    TEST("hashmap metric: Remove+Set reuses values slot");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int val = 42, val2 = 99;
+    UnsafeHashMap_SSet(map, "key", &val);
+    uint32_t count_after_set = map->values->count;
+    UnsafeHashMap_SRemove(map, "key");
+    UnsafeHashMap_SSet(map, "key2", &val2);
+    ASSERT(map->values->count == count_after_set);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_metric_100_remove_add_cycles(void) {
+    TEST("hashmap metric: 100 remove+add cycles, values->count unchanged");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v = 1;
+    UnsafeHashMap_Set(map, "k", 1, &v);
+    uint32_t baseline = map->values->count;
+    for (int i = 0; i < 100; i++) {
+        UnsafeHashMap_Remove(map, "k", 1);
+        v = i + 2;
+        UnsafeHashMap_Set(map, "k", 1, &v);
+    }
+    ASSERT(map->values->count == baseline);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_metric_upsert_no_values_growth(void) {
+    TEST("hashmap metric: Upsert does not grow values array");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeHashMap_SSet(map, "key", &v1);
+    uint32_t baseline = map->values->count;
+    UnsafeHashMap_SUpsert(map, "key", &v2);
+    ASSERT(map->values->count == baseline);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+// ============================================================
+// Layout tests
+// ============================================================
+
+static void test_hm_layout_value_at_slot(void) {
+    TEST("hashmap layout: value bytes at slot match Set input");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int val = 42;
+    UnsafeHashMap_SSet(map, "key", &val);
+
+    uint32_t slot = _UnsafeHashMap_FindSlot(map, "key", _UNSAFE_STRLITERAL_LEN("key"));
+    UnsafeHashEntry *e = &map->buckets[slot];
+    ASSERT(e->value >= 0);
+
+    void *stored = UnsafeArray_Get(map->values, (uint32_t)e->value);
+    ASSERT(stored != NULL);
+    ASSERT(_verify_bytes_hm((uint8_t *)stored, 0, (const uint8_t *)&val, sizeof(int)));
+
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_layout_reuse_after_remove(void) {
+    TEST("hashmap layout: Remove+Set reuses same values index");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeHashMap_SSet(map, "key", &v1);
+
+    uint32_t slot1 = _UnsafeHashMap_FindSlot(map, "key", _UNSAFE_STRLITERAL_LEN("key"));
+    int32_t idx1 = map->buckets[slot1].value;
+    ASSERT(idx1 >= 0);
+
+    UnsafeHashMap_SRemove(map, "key");
+    UnsafeHashMap_SSet(map, "key2", &v2);
+
+    uint32_t slot2 = _UnsafeHashMap_FindSlot(map, "key2", _UNSAFE_STRLITERAL_LEN("key2"));
+    int32_t idx2 = map->buckets[slot2].value;
+    ASSERT(idx2 == idx1);
+
+    void *stored = UnsafeArray_Get(map->values, (uint32_t)idx2);
+    ASSERT(_verify_bytes_hm((uint8_t *)stored, 0, (const uint8_t *)&v2, sizeof(int)));
+
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_layout_upsert_in_place(void) {
+    TEST("hashmap layout: Upsert overwrites at same values index");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeHashMap_SSet(map, "key", &v1);
+
+    uint32_t slot1 = _UnsafeHashMap_FindSlot(map, "key", _UNSAFE_STRLITERAL_LEN("key"));
+    int32_t idx1 = map->buckets[slot1].value;
+    ASSERT(idx1 >= 0);
+
+    UnsafeHashMap_SUpsert(map, "key", &v2);
+
+    uint32_t slot2 = _UnsafeHashMap_FindSlot(map, "key", _UNSAFE_STRLITERAL_LEN("key"));
+    int32_t idx2 = map->buckets[slot2].value;
+    ASSERT(idx2 == idx1);
+
+    void *stored = UnsafeArray_Get(map->values, (uint32_t)idx2);
+    ASSERT(_verify_bytes_hm((uint8_t *)stored, 0, (const uint8_t *)&v2, sizeof(int)));
+
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_metric_inline_upsert_no_values_growth(void) {
+    TEST("hashmap metric: inline Remove+Set does not grow values array");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeHashMap_SSet(map, "key", &v1);
+    uint32_t baseline = map->values->count;
+    UnsafeHashMap_SRemove(map, "key");
+    UnsafeHashMap_SSet(map, "key", &v2);
+    ASSERT(map->values->count == baseline);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_layout_inline_upsert_reuses_slot(void) {
+    TEST("hashmap layout: inline Remove+Set reuses same values index");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeHashMap_SSet(map, "key", &v1);
+
+    uint32_t slot1 = _UnsafeHashMap_FindSlot(map, "key", _UNSAFE_STRLITERAL_LEN("key"));
+    int32_t idx1 = map->buckets[slot1].value;
+    ASSERT(idx1 >= 0);
+
+    UnsafeHashMap_SRemove(map, "key");
+    UnsafeHashMap_SSet(map, "key", &v2);
+
+    uint32_t slot2 = _UnsafeHashMap_FindSlot(map, "key", _UNSAFE_STRLITERAL_LEN("key"));
+    int32_t idx2 = map->buckets[slot2].value;
+    ASSERT(idx2 == idx1);
+
+    void *stored = UnsafeArray_Get(map->values, (uint32_t)idx2);
+    ASSERT(_verify_bytes_hm((uint8_t *)stored, 0, (const uint8_t *)&v2, sizeof(int)));
+
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_metric_1000_remove_add_cycles(void) {
+    TEST("hashmap metric: 1000 remove+add cycles, values->count unchanged");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v = 1;
+    UnsafeHashMap_Set(map, "k", 1, &v);
+    uint32_t baseline = map->values->count;
+    for (int i = 0; i < 1000; i++) {
+        UnsafeHashMap_Remove(map, "k", 1);
+        v = i + 2;
+        UnsafeHashMap_Set(map, "k", 1, &v);
+    }
+    ASSERT(map->values->count == baseline);
+    ASSERT(UnsafeHashMap_GetDeref(map, "k", 1, int) == 1001);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_metric_1000_upsert_cycles(void) {
+    TEST("hashmap metric: 1000 upsert cycles, values->count unchanged");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v = 0;
+    UnsafeHashMap_Set(map, "k", 1, &v);
+    uint32_t baseline = map->values->count;
+    for (int i = 0; i < 1000; i++) {
+        v = i;
+        UnsafeHashMap_Upsert(map, "k", 1, &v);
+    }
+    ASSERT(map->values->count == baseline);
+    ASSERT(UnsafeHashMap_GetDeref(map, "k", 1, int) == 999);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
 static void run_unsafe_hashmap_tests(void) {
     LOG_INFO("=== UnsafeHashMap Tests ===");
     test_hashmap_create_destroy();
@@ -381,4 +677,27 @@ static void run_unsafe_hashmap_tests(void) {
     test_hashmap_set_duplicate_key();
     test_hashmap_create_null_on_zero();
     test_varied_hashmap_getderef_missing_key();
+
+    // Contract tests
+    test_hm_contract_set_duplicate_neg1();
+    test_hm_contract_remove_then_get_null();
+    test_hm_contract_foreach_visits_all();
+    test_hm_contract_rehash_transparent();
+    test_hm_contract_remove_nonexistent();
+    test_hm_contract_upsert_creates();
+    test_hm_contract_upsert_overwrites();
+
+    // Metric tests
+    test_hm_metric_remove_set_reuses_slot();
+    test_hm_metric_100_remove_add_cycles();
+    test_hm_metric_upsert_no_values_growth();
+    test_hm_metric_inline_upsert_no_values_growth();
+    test_hm_metric_1000_remove_add_cycles();
+    test_hm_metric_1000_upsert_cycles();
+
+    // Layout tests
+    test_hm_layout_value_at_slot();
+    test_hm_layout_reuse_after_remove();
+    test_hm_layout_upsert_in_place();
+    test_hm_layout_inline_upsert_reuses_slot();
 }

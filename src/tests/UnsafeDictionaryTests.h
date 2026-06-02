@@ -325,6 +325,217 @@ static void test_dict_set_duplicate_key(void) {
     PASS();
 }
 
+// -- ForEach recorder for trie-order test --
+static char _dict_foreach_keys[16][32];
+static int _dict_foreach_idx = 0;
+static void _dict_foreach_recorder(const void *key, uint32_t key_len, void *value) {
+    (void)value;
+    memcpy(_dict_foreach_keys[_dict_foreach_idx], key, key_len);
+    _dict_foreach_keys[_dict_foreach_idx][key_len] = '\0';
+    _dict_foreach_idx++;
+}
+
+// -- Contract tests --
+
+static void test_dict_contract_set_duplicate_neg1(void) {
+    TEST("dict contract: SSet duplicate returns -1");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int val = 10, val2 = 20;
+    ASSERT(UnsafeDictionary_SSet(dict, "key", &val) == 0);
+    ASSERT(UnsafeDictionary_SSet(dict, "key", &val2) == -1);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "key", int) == 10);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_contract_remove_get_null(void) {
+    TEST("dict contract: SSet, SRemove, SGet returns NULL");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int val = 42;
+    ASSERT(UnsafeDictionary_SSet(dict, "key", &val) == 0);
+    ASSERT(UnsafeDictionary_SRemove(dict, "key") == 0);
+    ASSERT(UnsafeDictionary_SGet(dict, "key") == NULL);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_contract_remove_nonexistent(void) {
+    TEST("dict contract: SRemove nonexistent returns -1");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    ASSERT(UnsafeDictionary_SRemove(dict, "never_set") == -1);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_contract_foreach_trie_order(void) {
+    TEST("dict contract: ForEach visits in trie order (a, b, c)");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int vb = 2, va = 1, vc = 3;
+    // Insert out of order: b, a, c
+    UnsafeDictionary_SSet(dict, "b", &vb);
+    UnsafeDictionary_SSet(dict, "a", &va);
+    UnsafeDictionary_SSet(dict, "c", &vc);
+
+    _dict_foreach_idx = 0;
+    memset(_dict_foreach_keys, 0, sizeof(_dict_foreach_keys));
+    UnsafeDictionary_ForEach(dict, _dict_foreach_recorder);
+
+    ASSERT(_dict_foreach_idx == 3);
+    // Trie order by 2-bit pairs MSB first: a(0x61) < b(0x62) < c(0x63)
+    ASSERT(strcmp(_dict_foreach_keys[0], "a") == 0);
+    ASSERT(strcmp(_dict_foreach_keys[1], "b") == 0);
+    ASSERT(strcmp(_dict_foreach_keys[2], "c") == 0);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+// -- Contract tests (will FAIL -- Upsert is a stub) --
+
+static void test_dict_contract_upsert_creates(void) {
+    TEST("dict contract: SUpsert creates new entry");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int val = 42;
+    ASSERT(UnsafeDictionary_SUpsert(dict, "new", &val) == 0);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "new", int) == 42);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_contract_upsert_overwrites(void) {
+    TEST("dict contract: SUpsert overwrites existing value");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeDictionary_SSet(dict, "k", &v1);
+    ASSERT(UnsafeDictionary_SUpsert(dict, "k", &v2) == 0);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "k", int) == 99);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+// -- Metric tests --
+
+static void test_dict_metric_remove_set_reuses_slot(void) {
+    TEST("dict metric: remove+set reuses value slot");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeDictionary_SSet(dict, "k", &v1);
+    uint32_t count_after_set = dict->values->count;
+    ASSERT(UnsafeDictionary_SRemove(dict, "k") == 0);
+    ASSERT(UnsafeDictionary_SSet(dict, "k2", &v2) == 0);
+    ASSERT(dict->values->count == count_after_set);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_metric_100_remove_add_cycles(void) {
+    TEST("dict metric: 100 remove+add cycles, values->count unchanged");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v = 1;
+    UnsafeDictionary_Set(dict, "k", 1, &v);
+    uint32_t baseline = dict->values->count;
+    for (int i = 0; i < 100; i++) {
+        UnsafeDictionary_Remove(dict, "k", 1);
+        v = i;
+        UnsafeDictionary_Set(dict, "k", 1, &v);
+    }
+    ASSERT(dict->values->count == baseline);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+// -- Layout tests --
+
+static void test_dict_layout_value_slot(void) {
+    TEST("dict layout: value slot contains correct bytes after Set");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int val = 42;
+    UnsafeDictionary_Set(dict, "ab", 2, &val);
+
+    int32_t node_idx = UnsafeDictionary_Walk(dict, "ab", 2, 0);
+    ASSERT(node_idx != UNSAFEDICT_EMPTY);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    ASSERT(node->value != UNSAFEDICT_EMPTY);
+
+    int *stored = (int *)UnsafeArray_Get(dict->values, (uint32_t)node->value);
+    ASSERT(stored != NULL);
+    ASSERT(*stored == 42);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_layout_reuse_after_remove(void) {
+    TEST("dict layout: remove+set reuses same values index");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeDictionary_Set(dict, "ab", 2, &v1);
+
+    // Record the values index for "ab"
+    int32_t node_idx_ab = UnsafeDictionary_Walk(dict, "ab", 2, 0);
+    UnsafeDictNode *node_ab = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx_ab);
+    int32_t original_slot = node_ab->value;
+
+    UnsafeDictionary_Remove(dict, "ab", 2);
+    UnsafeDictionary_Set(dict, "cd", 2, &v2);
+
+    // Walk for "cd" and verify same values index
+    int32_t node_idx_cd = UnsafeDictionary_Walk(dict, "cd", 2, 0);
+    ASSERT(node_idx_cd != UNSAFEDICT_EMPTY);
+    UnsafeDictNode *node_cd = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx_cd);
+    ASSERT(node_cd->value == original_slot);
+
+    int *stored = (int *)UnsafeArray_Get(dict->values, (uint32_t)node_cd->value);
+    ASSERT(stored != NULL);
+    ASSERT(*stored == 99);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_metric_inline_upsert_no_growth(void) {
+    TEST("dict metric: inline Remove+Set does not grow values array");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeDictionary_SSet(dict, "k", &v1);
+    uint32_t baseline = dict->values->count;
+    UnsafeDictionary_SRemove(dict, "k");
+    UnsafeDictionary_SSet(dict, "k", &v2);
+    ASSERT(dict->values->count == baseline);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_metric_1000_remove_add_cycles(void) {
+    TEST("dict metric: 1000 remove+add cycles, values->count unchanged");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v = 1;
+    UnsafeDictionary_SSet(dict, "k", &v);
+    uint32_t baseline = dict->values->count;
+    for (int i = 0; i < 1000; i++) {
+        UnsafeDictionary_SRemove(dict, "k");
+        v = i + 2;
+        UnsafeDictionary_SSet(dict, "k", &v);
+    }
+    ASSERT(dict->values->count == baseline);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "k", int) == 1001);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_dict_metric_1000_upsert_cycles(void) {
+    TEST("dict metric: 1000 upsert cycles, values->count unchanged");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v = 0;
+    UnsafeDictionary_SSet(dict, "k", &v);
+    uint32_t baseline = dict->values->count;
+    for (int i = 0; i < 1000; i++) {
+        v = i;
+        UnsafeDictionary_SUpsert(dict, "k", &v);
+    }
+    ASSERT(dict->values->count == baseline);
+    ASSERT(UnsafeDictionary_SGetDeref(dict, "k", int) == 999);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
 static void run_unsafe_dictionary_tests(void) {
     LOG_INFO("=== UnsafeDictionary Tests ===");
     test_dict_create_destroy();
@@ -349,4 +560,21 @@ static void run_unsafe_dictionary_tests(void) {
     test_dict_remove_reinsert_many();
     test_dict_getderef_missing_key();
     test_dict_set_duplicate_key();
+    // Contract tests
+    test_dict_contract_set_duplicate_neg1();
+    test_dict_contract_remove_get_null();
+    test_dict_contract_remove_nonexistent();
+    test_dict_contract_foreach_trie_order();
+    // Contract tests (Upsert -- expected to FAIL, stub returns -1)
+    test_dict_contract_upsert_creates();
+    test_dict_contract_upsert_overwrites();
+    // Metric tests
+    test_dict_metric_remove_set_reuses_slot();
+    test_dict_metric_100_remove_add_cycles();
+    test_dict_metric_inline_upsert_no_growth();
+    test_dict_metric_1000_remove_add_cycles();
+    test_dict_metric_1000_upsert_cycles();
+    // Layout tests
+    test_dict_layout_value_slot();
+    test_dict_layout_reuse_after_remove();
 }
