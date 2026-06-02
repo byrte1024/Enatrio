@@ -513,6 +513,308 @@ def check_create_stored_as_external(filepath, source, source_bytes, tree, ignore
 
 
 # ============================================================
+# Inheritance helpers
+# ============================================================
+
+def _parse_inherits_chain(filepath, source, ignore):
+    """Parse INHERITS(X) and #define TYPE in a file.
+    Returns (class_name, parent_name) or (class_name, None) if no INHERITS."""
+    class_name = None
+    parent_name = None
+    pat_type = re.compile(r"^#define\s+TYPE\s+(\w+)")
+    pat_inherits = re.compile(r"\bINHERITS\s*\(\s*(\w+)\s*\)")
+    for i, line in enumerate(source.split("\n"), 1):
+        if is_ignored(i, ignore):
+            continue
+        m = pat_type.match(line.strip())
+        if m:
+            class_name = m.group(1)
+        m = pat_inherits.search(line.strip())
+        if m:
+            parent_name = m.group(1)
+    return (class_name, parent_name)
+
+
+def _find_extern_handler_bodies(source, ignore):
+    """Find extern handler bodies.
+    Returns list of (extern_class, handler_name, start_line, end_line, body_text)."""
+    handlers = []
+    lines = source.split("\n")
+    pat_begin = re.compile(
+        r"\b(?:MESSAGE_HANDLER_BEGIN_EXTERN|SELF_MESSAGE_HANDLER_BEGIN_EXTERN)"
+        r"\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)")
+    pat_end = re.compile(r"\bMESSAGE_HANDLER_END\s*\(")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        line_num = i + 1
+        if is_ignored(line_num, ignore) or line.strip().startswith("#define"):
+            i += 1
+            continue
+        m = pat_begin.search(line)
+        if m:
+            extern_class = m.group(1)
+            handler_name = m.group(2)
+            start = line_num
+            body_lines = []
+            i += 1
+            while i < len(lines):
+                if pat_end.search(lines[i]):
+                    handlers.append((extern_class, handler_name, start, i + 1, "\n".join(body_lines)))
+                    break
+                body_lines.append(lines[i])
+                i += 1
+        i += 1
+    return handlers
+
+
+def _find_normal_handler_bodies(source, ignore):
+    """Find non-extern handler bodies.
+    Returns list of (handler_name, start_line, end_line, body_text)."""
+    handlers = []
+    lines = source.split("\n")
+    pat_begin = re.compile(
+        r"\b(?:MESSAGE_HANDLER_BEGIN|SELF_MESSAGE_HANDLER_BEGIN)\s*\(\s*(\w+)\s*\)")
+    pat_extern = re.compile(r"_EXTERN\s*\(")
+    pat_end = re.compile(r"\bMESSAGE_HANDLER_END\s*\(")
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        line_num = i + 1
+        if is_ignored(line_num, ignore) or line.strip().startswith("#define"):
+            i += 1
+            continue
+        m = pat_begin.search(line)
+        if m and not pat_extern.search(line):
+            handler_name = m.group(1)
+            start = line_num
+            body_lines = []
+            i += 1
+            while i < len(lines):
+                if pat_end.search(lines[i]):
+                    handlers.append((handler_name, start, i + 1, "\n".join(body_lines)))
+                    break
+                body_lines.append(lines[i])
+                i += 1
+        i += 1
+    return handlers
+
+
+# ============================================================
+# Inheritance rules (R090-R102)
+# ============================================================
+
+def check_extern_without_inherit(filepath, source, source_bytes, tree, ignore, errors):
+    """R090: Extern handler without inheritance."""
+    class_name, parent_name = _parse_inherits_chain(filepath, source, ignore)
+    if class_name is None:
+        return
+    pat_extern = re.compile(
+        r"\b(?:MESSAGE_HANDLER_BEGIN_EXTERN|SELF_MESSAGE_HANDLER_BEGIN_EXTERN)"
+        r"\s*\(\s*(\w+)\s*,")
+    for i, line in enumerate(source.split("\n"), 1):
+        if is_ignored(i, ignore):
+            continue
+        if line.strip().startswith("#define"):
+            continue
+        for m in pat_extern.finditer(line):
+            extern_class = m.group(1)
+            if extern_class == class_name:
+                continue
+            if parent_name is None or extern_class != parent_name:
+                errors.append(LintError(filepath, i, "R090",
+                    f"Extern handler for '{extern_class}' but class '{class_name}' "
+                    f"does not inherit from '{extern_class}'"))
+
+
+def check_missing_call_or_ignore_base(filepath, source, source_bytes, tree, ignore, errors):
+    """R091: Missing CALL_BASE or IGNORE_BASE in inherited extern handler."""
+    class_name, parent_name = _parse_inherits_chain(filepath, source, ignore)
+    if class_name is None or parent_name is None:
+        return
+    for extern_class, handler_name, start, end, body in _find_extern_handler_bodies(source, ignore):
+        if extern_class != parent_name:
+            continue
+        if "CALL_BASE()" not in body and "IGNORE_BASE()" not in body:
+            errors.append(LintError(filepath, start, "R091",
+                f"Extern handler for {extern_class}.{handler_name} missing "
+                f"CALL_BASE() or IGNORE_BASE()"))
+
+
+def check_base_in_normal_handler(filepath, source, source_bytes, tree, ignore, errors):
+    """R092: CALL_BASE/IGNORE_BASE in non-extern handler."""
+    for handler_name, start, end, body in _find_normal_handler_bodies(source, ignore):
+        if "CALL_BASE()" in body:
+            errors.append(LintError(filepath, start, "R092",
+                f"CALL_BASE() in non-extern handler {handler_name} -- "
+                f"own MIDs have no base to call"))
+        if "IGNORE_BASE()" in body:
+            errors.append(LintError(filepath, start, "R092",
+                f"IGNORE_BASE() in non-extern handler {handler_name} -- "
+                f"own MIDs have no base to call"))
+
+
+def check_both_call_and_ignore(filepath, source, source_bytes, tree, ignore, errors):
+    """R093: Both CALL_BASE and IGNORE_BASE in same handler."""
+    for extern_class, handler_name, start, end, body in _find_extern_handler_bodies(source, ignore):
+        if "CALL_BASE()" in body and "IGNORE_BASE()" in body:
+            errors.append(LintError(filepath, start, "R093",
+                f"Both CALL_BASE() and IGNORE_BASE() in handler "
+                f"{extern_class}.{handler_name} -- pick one"))
+
+
+def check_circular_inheritance_per_file(filepath, source, source_bytes, tree, ignore, errors):
+    """R094: Self-inheritance (per-file check; cross-file cycles checked in main)."""
+    class_name, parent_name = _parse_inherits_chain(filepath, source, ignore)
+    if class_name and parent_name and class_name == parent_name:
+        pat_inherits = re.compile(r"\bINHERITS\s*\(")
+        for i, line in enumerate(source.split("\n"), 1):
+            if pat_inherits.search(line):
+                errors.append(LintError(filepath, i, "R094",
+                    f"Circular inheritance detected: {class_name} -> ... -> {class_name}"))
+                break
+
+
+def check_inherits_parent_cid_visible(filepath, source, source_bytes, tree, ignore, errors):
+    """R095: Skipped -- cannot reliably check parent CID visibility without preprocessing includes."""
+    pass
+
+
+def check_inherits_unknown_class(filepath, source, source_bytes, tree, ignore, errors):
+    """R096: Skipped -- cannot reliably check for unknown classes without preprocessing includes."""
+    pass
+
+
+def check_multiple_inherits(filepath, source, source_bytes, tree, ignore, errors):
+    """R097: Multiple INHERITS in one class."""
+    pat_inherits = re.compile(r"\bINHERITS\s*\(\s*(\w+)\s*\)")
+    pat_type_def = re.compile(r"^#define\s+TYPE\s+")
+    pat_type_undef = re.compile(r"^#undef\s+TYPE\s*$")
+    in_class = False
+    inherits_count = 0
+    first_line = 0
+    for i, line in enumerate(source.split("\n"), 1):
+        if is_ignored(i, ignore):
+            continue
+        stripped = line.strip()
+        if pat_type_def.match(stripped):
+            in_class = True
+            inherits_count = 0
+        elif pat_type_undef.match(stripped):
+            in_class = False
+        elif in_class and pat_inherits.search(stripped):
+            inherits_count += 1
+            if inherits_count == 1:
+                first_line = i
+            if inherits_count > 1:
+                errors.append(LintError(filepath, i, "R097",
+                    f"Multiple INHERITS in one class (first at line {first_line})"))
+
+
+def check_inherits_before_begin_class(filepath, source, source_bytes, tree, ignore, errors):
+    """R098: INHERITS before BEGIN_CLASS."""
+    pat_inherits = re.compile(r"\bINHERITS\s*\(\s*(\w+)\s*\)")
+    pat_begin = re.compile(r"\bBEGIN_CLASS\s*\(")
+    has_begin = False
+    for i, line in enumerate(source.split("\n"), 1):
+        if is_ignored(i, ignore):
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#define"):
+            continue
+        if pat_begin.search(stripped):
+            has_begin = True
+        if pat_inherits.search(stripped) and not has_begin:
+            errors.append(LintError(filepath, i, "R098",
+                "INHERITS before BEGIN_CLASS"))
+
+
+def check_inherits_after_handler(filepath, source, source_bytes, tree, ignore, errors):
+    """R099: INHERITS after handler declarations."""
+    pat_inherits = re.compile(r"\bINHERITS\s*\(\s*(\w+)\s*\)")
+    pat_handler = re.compile(
+        r"\b(?:MESSAGE_HANDLER_BEGIN|SELF_MESSAGE_HANDLER_BEGIN|"
+        r"MESSAGE_HANDLER_BEGIN_EXTERN|SELF_MESSAGE_HANDLER_BEGIN_EXTERN|"
+        r"CAN_RECEIVE_BEGIN)\s*\(")
+    has_handler = False
+    for i, line in enumerate(source.split("\n"), 1):
+        if is_ignored(i, ignore):
+            continue
+        stripped = line.strip()
+        if stripped.startswith("#define"):
+            continue
+        if pat_handler.search(stripped):
+            has_handler = True
+        if pat_inherits.search(stripped) and has_handler:
+            errors.append(LintError(filepath, i, "R099",
+                "INHERITS after handler declarations -- "
+                "place INHERITS immediately after BEGIN_CLASS"))
+
+
+def check_self_inherit(filepath, source, source_bytes, tree, ignore, errors):
+    """R100: Self-inheritance."""
+    class_name, parent_name = _parse_inherits_chain(filepath, source, ignore)
+    if class_name and parent_name and class_name == parent_name:
+        pat_inherits = re.compile(r"\bINHERITS\s*\(")
+        for i, line in enumerate(source.split("\n"), 1):
+            if pat_inherits.search(line):
+                errors.append(LintError(filepath, i, "R100",
+                    f"Self-inheritance: {class_name} inherits from itself"))
+                break
+
+
+def check_double_call_base(filepath, source, source_bytes, tree, ignore, errors):
+    """R101: CALL_BASE used multiple times in one handler."""
+    for extern_class, handler_name, start, end, body in _find_extern_handler_bodies(source, ignore):
+        count = body.count("CALL_BASE()")
+        if count > 1:
+            errors.append(LintError(filepath, start, "R101",
+                f"CALL_BASE() used {count} times in handler "
+                f"{extern_class}.{handler_name} -- calling base twice is a bug"))
+
+
+def check_ignore_base_on_lifecycle(filepath, source, source_bytes, tree, ignore, errors):
+    """R102: IGNORE_BASE on SELF_Create or SELF_Destroy."""
+    for extern_class, handler_name, start, end, body in _find_extern_handler_bodies(source, ignore):
+        if handler_name in ("Create", "Destroy") and "IGNORE_BASE()" in body:
+            errors.append(LintError(filepath, start, "R102",
+                f"IGNORE_BASE() on SELF_{handler_name} -- "
+                f"skipping parent lifecycle is dangerous"))
+
+
+def check_circular_inheritance_cross_file(files, errors):
+    """R094: Circular inheritance across files."""
+    class_parents = {}
+    pat_type = re.compile(r"^#define\s+TYPE\s+(\w+)")
+    pat_inherits = re.compile(r"\bINHERITS\s*\(\s*(\w+)\s*\)")
+    for filepath in files:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            source = f.read()
+        ignore = build_ignore_ranges(source)
+        current_type = None
+        for i, line in enumerate(source.split("\n"), 1):
+            if is_ignored(i, ignore):
+                continue
+            m = pat_type.match(line.strip())
+            if m:
+                current_type = m.group(1)
+            m = pat_inherits.search(line.strip())
+            if m and current_type:
+                class_parents[current_type] = (m.group(1), filepath, i)
+    for class_name in class_parents:
+        visited = set()
+        walk = class_name
+        while walk in class_parents:
+            if walk in visited:
+                parent_name, filepath, line = class_parents[class_name]
+                errors.append(LintError(filepath, line, "R094",
+                    f"Circular inheritance detected: {class_name} -> ... -> {walk}"))
+                break
+            visited.add(walk)
+            walk = class_parents[walk][0]
+
+
+# ============================================================
 # Runner
 # ============================================================
 
@@ -533,6 +835,17 @@ ALL_RULES = [
     check_ref_overwrite,
     check_ref_never_unrefd,
     check_create_stored_as_external,
+    check_extern_without_inherit,
+    check_missing_call_or_ignore_base,
+    check_base_in_normal_handler,
+    check_both_call_and_ignore,
+    check_circular_inheritance_per_file,
+    check_multiple_inherits,
+    check_inherits_before_begin_class,
+    check_inherits_after_handler,
+    check_self_inherit,
+    check_double_call_base,
+    check_ignore_base_on_lifecycle,
 ]
 
 
@@ -575,6 +888,15 @@ def main():
             total_errors += len(errors)
             for e in errors:
                 print(f"  {e}")
+
+    # Cross-file checks
+    cross_errors = []
+    check_circular_inheritance_cross_file(files, cross_errors)
+    for e in cross_errors:
+        print(f"  {e}")
+    total_errors += len(cross_errors)
+    if cross_errors:
+        error_files += 1
 
     if total_errors > 0:
         print(f"\nLint: {total_errors} error(s) in {error_files} file(s) "

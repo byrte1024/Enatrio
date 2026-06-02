@@ -172,6 +172,56 @@ def main():
               f"got {len(r040_errors)}: {[e.line for e in r040_errors]}")
         failed += 1
 
+    # R090: Extern handler without inheritance
+    print("--- R090: Extern handler without inheritance ---")
+    expect_rule("r090_extern_no_inherit.h", "R090", should_trigger=True)
+    expect_rule("inherit_ok.h", "R090", should_trigger=False)
+
+    # R091: Missing CALL_BASE or IGNORE_BASE
+    print("--- R091: Missing CALL_BASE/IGNORE_BASE ---")
+    expect_rule("r091_missing_call_base.h", "R091", should_trigger=True)
+    expect_rule("inherit_ok.h", "R091", should_trigger=False)
+
+    # R092: CALL_BASE/IGNORE_BASE in normal handler
+    print("--- R092: CALL_BASE in non-extern handler ---")
+    expect_rule("r092_call_base_in_normal.h", "R092", should_trigger=True)
+    expect_rule("inherit_ok.h", "R092", should_trigger=False)
+
+    # R093: Both CALL_BASE and IGNORE_BASE
+    print("--- R093: Both CALL_BASE and IGNORE_BASE ---")
+    expect_rule("r093_both_call_ignore.h", "R093", should_trigger=True)
+    expect_rule("inherit_ok.h", "R093", should_trigger=False)
+
+    # R094: Circular inheritance (cross-file -- test via single-file self-inherit)
+    print("--- R094: Circular inheritance ---")
+    expect_rule("r094_circular_inherit.h", "R094", should_trigger=True)
+
+    # R097: Multiple INHERITS
+    print("--- R097: Multiple INHERITS ---")
+    expect_rule("r097_multiple_inherits.h", "R097", should_trigger=True)
+
+    # R098: INHERITS before BEGIN_CLASS
+    print("--- R098: INHERITS before BEGIN_CLASS ---")
+    expect_rule("r098_inherits_before_begin.h", "R098", should_trigger=True)
+
+    # R099: INHERITS after handler
+    print("--- R099: INHERITS after handler ---")
+    expect_rule("r099_inherits_after_handler.h", "R099", should_trigger=True)
+
+    # R100: Self-inheritance
+    print("--- R100: Self-inheritance ---")
+    expect_rule("r100_self_inherit.h", "R100", should_trigger=True)
+
+    # R101: Double CALL_BASE
+    print("--- R101: Double CALL_BASE ---")
+    expect_rule("r101_double_call_base.h", "R101", should_trigger=True)
+    expect_rule("inherit_ok.h", "R101", should_trigger=False)
+
+    # R102: IGNORE_BASE on lifecycle
+    print("--- R102: IGNORE_BASE on SELF_Create/Destroy ---")
+    expect_rule("r102_ignore_base_create.h", "R102", should_trigger=True)
+    expect_rule("inherit_ok.h", "R102", should_trigger=False)
+
     # all_ok.h should be completely clean
     print("--- Full clean file ---")
     expect_clean("all_ok.h")
