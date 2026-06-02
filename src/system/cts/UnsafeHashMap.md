@@ -425,6 +425,41 @@ UnsafeVariedHashMap_SSet(map, "position", vec, sizeof(vec));
 
 The API is identical -- switching between them requires only changing the type name.
 
+## Performance
+
+### UnsafeHashMap
+
+Benchmarked on release build (GCC -O2).
+
+| Operation      | ns/op | 1ms budget | 8.33ms budget | 16.67ms budget |
+|----------------|-------|------------|---------------|----------------|
+| Set (unique)   | 59.5  | 16,806     | 139,983       | 280,168        |
+| Get (existing) | 19.7  | 50,761     | 422,842       | 846,192        |
+| Upsert (same)  | 2.2   | 454,545    | 3,786,363     | 7,577,272      |
+| Remove + Set   | 9.0   | 111,111    | 925,555       | 1,852,222      |
+
+- "Budget" columns show the maximum number of operations that fit within
+  the given time window. At 120 FPS, one frame is 8.33ms. Exceeding the
+  8.33ms budget for a single operation type means frame drops.
+- Benchmarks include snprintf key construction overhead for string-keyed
+  lookups. Raw Get/Upsert on pre-constructed keys is faster.
+- Scaling: O(1) confirmed -- Get stays at 16.5-17.1 ns/op from N=100
+  to N=50,000.
+
+### UnsafeVariedHashMap
+
+| Operation                | ns/op | 1ms budget | 8.33ms budget | 16.67ms budget |
+|--------------------------|-------|------------|---------------|----------------|
+| Set (unique)             | 55.8  | 17,921     | 149,283       | 298,924        |
+| Upsert same-size         | 2.5   | 400,000    | 3,332,000     | 6,668,000      |
+| Upsert oscillating 4b/8b | 9.5   | 105,263    | 876,842       | 1,754,736      |
+| Remove + Set             | 14.5  | 68,965     | 574,482       | 1,149,655      |
+
+- Benchmarks include snprintf key construction overhead for string-keyed
+  lookups. Raw Get/Upsert on pre-constructed keys is faster.
+- Scaling: constant 2.5 ns/op Upsert with zero data buffer growth from
+  N=100 to N=100,000.
+
 ## Limitations
 
 - Max key length: 256 bytes (returns -1 if exceeded)

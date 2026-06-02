@@ -404,6 +404,30 @@ UnsafeVariedDictionary_SUpsert(dict, "pos", &pos, sizeof(Vec2)); // upsert
 
 All `S`-macros reject `char*` at compile time -- string literals only.
 
+## Performance
+
+### UnsafeDictionary
+
+Benchmarked on release build (GCC -O2).
+
+| Operation      | ns/op | 1ms budget | 8.33ms budget | 16.67ms budget |
+|----------------|-------|------------|---------------|----------------|
+| Set (unique)   | 46.4  | 21,551     | 179,525       | 359,267        |
+| Get (existing) | 16.4  | 60,975     | 508,536       | 1,017,073      |
+| Upsert (same)  | 2.4   | 416,666    | 3,470,833     | 6,945,833      |
+
+- "Budget" columns show the maximum number of operations that fit within
+  the given time window. At 120 FPS, one frame is 8.33ms. Exceeding the
+  8.33ms budget for a single operation type means frame drops.
+- Benchmarks include snprintf key construction overhead for string-keyed
+  lookups. Raw Get/Upsert on pre-constructed keys is faster.
+
+### UnsafeVariedDictionary
+
+No dedicated benchmarks yet. Performance is expected to be similar to
+UnsafeVariedHashMap (same varied-data allocator, same upsert/coalescing
+logic). Refer to UnsafeHashMap.md for VariedHashMap numbers as a proxy.
+
 ## Limitations
 
 - Max key length: 256 bytes (returns -1 if exceeded)

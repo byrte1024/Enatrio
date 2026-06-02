@@ -304,6 +304,26 @@ UnsafeArray_Destroy(evens);
 
 ---
 
+## Performance
+
+Benchmarked on release build (GCC -O2).
+
+| Operation        | ns/op | 1ms budget  | 8.33ms budget  | 16.67ms budget  |
+|------------------|-------|-------------|----------------|-----------------|
+| Add              | 2.9   | 344,827     | 2,872,413      | 5,748,275       |
+| AddBulk (5000)   | 0.1   | 10,000,000  | 83,300,000     | 166,700,000     |
+| Get / GetFast    | <1    | unlimited   | unlimited      | unlimited       |
+| RemoveSwap + Add | 3.2   | 312,500     | 2,603,125      | 5,209,375       |
+
+- "Budget" columns show the maximum number of operations that fit within
+  the given time window. At 120 FPS, one frame is 8.33ms. Exceeding the
+  8.33ms budget for a single operation type means frame drops.
+- Get and GetFast are sub-nanosecond (compiler-optimized pointer arithmetic).
+  They do not appear as meaningful cost in profiling.
+- AddBulk is 29x faster than individual Add due to single memcpy.
+
+---
+
 ## Shared Varied-Data Allocator
 
 UnsafeArray.h defines the internal allocator used by UnsafeVariedHashMap and UnsafeVariedDictionary for their data buffers. This is not part of the public API but is documented here because it lives in this header.
