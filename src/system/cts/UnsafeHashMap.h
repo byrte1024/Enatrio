@@ -28,7 +28,7 @@ typedef struct UnsafeHashMap {
 
 // FNV-1a: good distribution for short keys, no external dependencies,
 // and the XOR-before-multiply variant reduces clustering on similar inputs.
-static uint32_t _UnsafeHashMap_Hash(const void *key, uint32_t key_len) {
+static inline uint32_t _UnsafeHashMap_Hash(const void *key, uint32_t key_len) {
     const uint8_t *bytes = (const uint8_t *)key;
     uint32_t hash = 2166136261u;
     for (uint32_t i = 0; i < key_len; i++) {
@@ -75,7 +75,7 @@ static void UnsafeHashMap_Destroy(UnsafeHashMap *map) {
 
 // Linear probe search. Returns the first usable slot (matching key, first
 // tombstone, or first empty). Load factor control guarantees termination.
-static uint32_t _UnsafeHashMap_FindSlot(UnsafeHashMap *map, const void *key, uint32_t key_len) {
+static inline uint32_t _UnsafeHashMap_FindSlot(UnsafeHashMap *map, const void *key, uint32_t key_len) {
     uint32_t hash = _UnsafeHashMap_Hash(key, key_len);
     uint32_t idx = hash & (map->bucket_count - 1);
     uint32_t first_deleted = map->bucket_count; // sentinel
@@ -156,7 +156,7 @@ static int UnsafeHashMap_Set(UnsafeHashMap *map, const void *key, uint32_t key_l
     e->key_len = key_len;
 
     if (map->free_list->count > 0) {
-        int32_t reuse = UnsafeArray_GetDeref(map->free_list, map->free_list->count - 1, int32_t);
+        int32_t reuse = UnsafeArray_GetDerefFast(map->free_list, map->free_list->count - 1, int32_t);
         map->free_list->count--;
         UnsafeArray_Set(map->values, (uint32_t)reuse, value);
         e->value = reuse;
@@ -168,7 +168,7 @@ static int UnsafeHashMap_Set(UnsafeHashMap *map, const void *key, uint32_t key_l
     return 0;
 }
 
-static void *UnsafeHashMap_Get(UnsafeHashMap *map, const void *key, uint32_t key_len) {
+static inline void *UnsafeHashMap_Get(UnsafeHashMap *map, const void *key, uint32_t key_len) {
     uint32_t slot = _UnsafeHashMap_FindSlot(map, key, key_len);
     if (slot == map->bucket_count) return NULL;
     UnsafeHashEntry *e = &map->buckets[slot];
@@ -176,7 +176,7 @@ static void *UnsafeHashMap_Get(UnsafeHashMap *map, const void *key, uint32_t key
     if (e->value < 0) return NULL;
     if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return NULL;
 
-    return UnsafeArray_Get(map->values, (uint32_t)e->value);
+    return UnsafeArray_GetFast(map->values, (uint32_t)e->value);
 }
 
 static int UnsafeHashMap_Has(UnsafeHashMap *map, const void *key, uint32_t key_len) {
@@ -217,7 +217,7 @@ static int UnsafeHashMap_Upsert(UnsafeHashMap *map, const void *key, uint32_t ke
 
     // Existing key -- overwrite in place
     if (e->value >= 0 && e->key_len == key_len && memcmp(e->key, key, key_len) == 0) {
-        memcpy(UnsafeArray_Get(map->values, (uint32_t)e->value), value, map->values->element_size);
+        memcpy(UnsafeArray_GetFast(map->values, (uint32_t)e->value), value, map->values->element_size);
         return 0;
     }
 
@@ -228,7 +228,7 @@ static int UnsafeHashMap_Upsert(UnsafeHashMap *map, const void *key, uint32_t ke
     e->key_len = key_len;
 
     if (map->free_list->count > 0) {
-        int32_t reuse = UnsafeArray_GetDeref(map->free_list, map->free_list->count - 1, int32_t);
+        int32_t reuse = UnsafeArray_GetDerefFast(map->free_list, map->free_list->count - 1, int32_t);
         map->free_list->count--;
         UnsafeArray_Set(map->values, (uint32_t)reuse, value);
         e->value = reuse;
@@ -246,7 +246,7 @@ static void UnsafeHashMap_ForEach(UnsafeHashMap *map, UnsafeHashMapForEachFn fn)
     for (uint32_t i = 0; i < map->bucket_count; i++) {
         UnsafeHashEntry *e = &map->buckets[i];
         if (e->value < 0) continue;
-        fn(e->key, e->key_len, UnsafeArray_Get(map->values, (uint32_t)e->value));
+        fn(e->key, e->key_len, UnsafeArray_GetFast(map->values, (uint32_t)e->value));
     }
 }
 
@@ -281,7 +281,7 @@ static void UnsafeHashMap_Print(UnsafeHashMap *map, UnsafeHashMapFormatter fmt_v
         if (e->value < 0) continue;
 
         char val_buf[256];
-        fmt_value(UnsafeArray_Get(map->values, (uint32_t)e->value), val_buf, sizeof(val_buf));
+        fmt_value(UnsafeArray_GetFast(map->values, (uint32_t)e->value), val_buf, sizeof(val_buf));
 
         if (string_keys) {
             printf("  \"%.*s\" => %s\n", (int)e->key_len, (char *)e->key, val_buf);
@@ -318,7 +318,7 @@ static void UnsafeHashMap_Log(UnsafeHashMap *map, UnsafeHashMapFormatter fmt_val
         if (e->value < 0) continue;
 
         char val_buf[256];
-        fmt_value(UnsafeArray_Get(map->values, (uint32_t)e->value), val_buf, sizeof(val_buf));
+        fmt_value(UnsafeArray_GetFast(map->values, (uint32_t)e->value), val_buf, sizeof(val_buf));
 
         if (string_keys) {
             LOG_INFO("  \"%.*s\" => %s", (int)e->key_len, (char *)e->key, val_buf);
@@ -413,7 +413,7 @@ static void UnsafeVariedHashMap_Destroy(UnsafeVariedHashMap *map) {
     free(map);
 }
 
-static uint32_t _UnsafeVariedHashMap_FindSlot(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+static inline uint32_t _UnsafeVariedHashMap_FindSlot(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
     uint32_t hash = _UnsafeHashMap_Hash(key, key_len);
     uint32_t idx = hash & (map->bucket_count - 1);
     uint32_t first_deleted = map->bucket_count;
@@ -491,7 +491,7 @@ static int UnsafeVariedHashMap_Set(UnsafeVariedHashMap *map, const void *key, ui
     info.size = value_size;
 
     if (map->free_list->count > 0) {
-        int32_t slot = UnsafeArray_GetDeref(map->free_list, map->free_list->count - 1, int32_t);
+        int32_t slot = UnsafeArray_GetDerefFast(map->free_list, map->free_list->count - 1, int32_t);
         map->free_list->count--;
         UnsafeArray_Set(map->entries, (uint32_t)slot, &info);
         e->value = slot;
@@ -504,7 +504,7 @@ static int UnsafeVariedHashMap_Set(UnsafeVariedHashMap *map, const void *key, ui
     return 0;
 }
 
-static void *UnsafeVariedHashMap_Get(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+static inline void *UnsafeVariedHashMap_Get(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
     uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, key, key_len);
     if (slot == map->bucket_count) return NULL;
     UnsafeVariedHashEntry *e = &map->buckets[slot];
@@ -512,8 +512,8 @@ static void *UnsafeVariedHashMap_Get(UnsafeVariedHashMap *map, const void *key, 
     if (e->value < 0) return NULL;
     if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return NULL;
 
-    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
-    return UnsafeArray_Get(map->data, info->offset);
+    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_GetFast(map->entries, (uint32_t)e->value);
+    return UnsafeArray_GetFast(map->data, info->offset);
 }
 
 static uint32_t UnsafeVariedHashMap_GetSize(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
@@ -524,7 +524,7 @@ static uint32_t UnsafeVariedHashMap_GetSize(UnsafeVariedHashMap *map, const void
     if (e->value < 0) return 0;
     if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return 0;
 
-    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_GetFast(map->entries, (uint32_t)e->value);
     return info->size;
 }
 
@@ -540,7 +540,7 @@ static int UnsafeVariedHashMap_Remove(UnsafeVariedHashMap *map, const void *key,
     if (e->value < 0) return -1;
     if (e->key_len != key_len || memcmp(e->key, key, key_len) != 0) return -1;
 
-    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_GetFast(map->entries, (uint32_t)e->value);
     _UnsafeVaried_FreeData(map->data_free_list, info->offset, info->size);
 
     int32_t freed_slot = e->value;
@@ -562,7 +562,7 @@ static int UnsafeVariedHashMap_Upsert(UnsafeVariedHashMap *map, const void *key,
     UnsafeVariedHashEntry *e = &map->buckets[slot];
 
     if (e->value >= 0 && e->key_len == key_len && memcmp(e->key, key, key_len) == 0) {
-        UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+        UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_GetFast(map->entries, (uint32_t)e->value);
         if (value_size <= info->size) {
             memcpy(map->data->data + info->offset, value, value_size);
             if (info->size > value_size) {
@@ -586,8 +586,8 @@ static void UnsafeVariedHashMap_ForEach(UnsafeVariedHashMap *map, UnsafeVariedHa
     for (uint32_t i = 0; i < map->bucket_count; i++) {
         UnsafeVariedHashEntry *e = &map->buckets[i];
         if (e->value < 0) continue;
-        UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
-        fn(e->key, e->key_len, UnsafeArray_Get(map->data, info->offset), info->size);
+        UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_GetFast(map->entries, (uint32_t)e->value);
+        fn(e->key, e->key_len, UnsafeArray_GetFast(map->data, info->offset), info->size);
     }
 }
 

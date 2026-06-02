@@ -62,7 +62,7 @@ static int32_t UnsafeDictionary_Walk(UnsafeDictionary *dict, const void *key, ui
         for (int shift = 6; shift >= 0; shift -= 2) {
             uint8_t pair = (byte >> shift) & 0x03;
 
-            UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)current);
+            UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)current);
             int32_t next = node->children[pair];
 
             if (next == UNSAFEDICT_EMPTY) {
@@ -72,7 +72,7 @@ static int32_t UnsafeDictionary_Walk(UnsafeDictionary *dict, const void *key, ui
                 next = (int32_t)dict->nodes->count;
                 UnsafeArray_Add(dict->nodes, &empty);
                 // Re-fetch parent since Add may have reallocated
-                node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)current);
+                node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)current);
                 node->children[pair] = next;
             }
 
@@ -88,12 +88,12 @@ static int UnsafeDictionary_Set(UnsafeDictionary *dict, const void *key, uint32_
     if (key_len > UNSAFEDICT_MAX_KEY_LEN) return -1;
 
     int32_t node_idx = UnsafeDictionary_Walk(dict, key, key_len, 1);
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
 
     if (node->value != UNSAFEDICT_EMPTY) return -1;
 
     if (dict->free_list->count > 0) {
-        int32_t slot = UnsafeArray_GetDeref(dict->free_list, dict->free_list->count - 1, int32_t);
+        int32_t slot = UnsafeArray_GetDerefFast(dict->free_list, dict->free_list->count - 1, int32_t);
         dict->free_list->count--;
         UnsafeArray_Set(dict->values, (uint32_t)slot, value);
         node->value = slot;
@@ -108,10 +108,10 @@ static void *UnsafeDictionary_Get(UnsafeDictionary *dict, const void *key, uint3
     int32_t node_idx = UnsafeDictionary_Walk(dict, key, key_len, 0);
     if (node_idx == UNSAFEDICT_EMPTY) return NULL;
 
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     if (node->value == UNSAFEDICT_EMPTY) return NULL;
 
-    return UnsafeArray_Get(dict->values, (uint32_t)node->value);
+    return UnsafeArray_GetFast(dict->values, (uint32_t)node->value);
 }
 
 static int UnsafeDictionary_Has(UnsafeDictionary *dict, const void *key, uint32_t key_len) {
@@ -123,7 +123,7 @@ static int UnsafeDictionary_Remove(UnsafeDictionary *dict, const void *key, uint
     int32_t node_idx = UnsafeDictionary_Walk(dict, key, key_len, 0);
     if (node_idx == UNSAFEDICT_EMPTY) return -1;
 
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     if (node->value == UNSAFEDICT_EMPTY) return -1;
 
     UnsafeArray_Add(dict->free_list, &node->value);
@@ -134,9 +134,9 @@ static int UnsafeDictionary_Remove(UnsafeDictionary *dict, const void *key, uint
 static int UnsafeDictionary_Upsert(UnsafeDictionary *dict, const void *key, uint32_t key_len, const void *value) {
     int32_t node_idx = UnsafeDictionary_Walk(dict, key, key_len, 0);
     if (node_idx != UNSAFEDICT_EMPTY) {
-        UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+        UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
         if (node->value != UNSAFEDICT_EMPTY) {
-            memcpy(UnsafeArray_Get(dict->values, (uint32_t)node->value), value, dict->values->element_size);
+            memcpy(UnsafeArray_GetFast(dict->values, (uint32_t)node->value), value, dict->values->element_size);
             return 0;
         }
     }
@@ -159,11 +159,11 @@ static void _UnsafeDictionary_ForEachWalk(
     uint8_t *key_buf, uint32_t depth,
     UnsafeDictForEachFn fn
 ) {
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
 
     if (node->value != UNSAFEDICT_EMPTY) {
         uint32_t key_len = depth / 4;
-        fn(key_buf, key_len, UnsafeArray_Get(dict->values, (uint32_t)node->value));
+        fn(key_buf, key_len, UnsafeArray_GetFast(dict->values, (uint32_t)node->value));
     }
 
     for (int child = 0; child < 4; child++) {
@@ -179,7 +179,7 @@ static void _UnsafeDictionary_ForEachWalk(
 
         _UnsafeDictionary_ForEachWalk(dict, node->children[child], key_buf, depth + 1, fn);
 
-        node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+        node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     }
 }
 
@@ -220,11 +220,11 @@ static void _UnsafeDictionary_PrintWalk(
     UnsafeDictFormatter fmt_value,
     int string_keys
 ) {
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
 
     if (node->value != UNSAFEDICT_EMPTY) {
         char val_buf[256];
-        fmt_value(UnsafeArray_Get(dict->values, (uint32_t)node->value), val_buf, sizeof(val_buf));
+        fmt_value(UnsafeArray_GetFast(dict->values, (uint32_t)node->value), val_buf, sizeof(val_buf));
 
         uint32_t key_len = depth / 4;
         if (string_keys) {
@@ -252,7 +252,7 @@ static void _UnsafeDictionary_PrintWalk(
 
         _UnsafeDictionary_PrintWalk(dict, node->children[child], key_buf, depth + 1, fmt_value, string_keys);
 
-        node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+        node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     }
 }
 
@@ -260,7 +260,7 @@ static void _UnsafeDictionary_PrintWalk(
 static void UnsafeDictionary_Print(UnsafeDictionary *dict, UnsafeDictFormatter fmt_value, int string_keys) {
     uint32_t entry_count = 0;
     for (uint32_t i = 0; i < dict->nodes->count; i++) {
-        UnsafeDictNode *n = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, i);
+        UnsafeDictNode *n = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, i);
         if (n->value != UNSAFEDICT_EMPTY) entry_count++;
     }
 
@@ -295,11 +295,11 @@ static void _UnsafeDictionary_LogWalk(
     UnsafeDictFormatter fmt_value,
     int string_keys
 ) {
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
 
     if (node->value != UNSAFEDICT_EMPTY) {
         char val_buf[256];
-        fmt_value(UnsafeArray_Get(dict->values, (uint32_t)node->value), val_buf, sizeof(val_buf));
+        fmt_value(UnsafeArray_GetFast(dict->values, (uint32_t)node->value), val_buf, sizeof(val_buf));
 
         uint32_t key_len = depth / 4;
         if (string_keys) {
@@ -329,7 +329,7 @@ static void _UnsafeDictionary_LogWalk(
 
         _UnsafeDictionary_LogWalk(dict, node->children[child], key_buf, depth + 1, fmt_value, string_keys);
 
-        node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+        node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     }
 }
 
@@ -337,7 +337,7 @@ static void _UnsafeDictionary_LogWalk(
 static void UnsafeDictionary_Log(UnsafeDictionary *dict, UnsafeDictFormatter fmt_value, int string_keys) {
     uint32_t entry_count = 0;
     for (uint32_t i = 0; i < dict->nodes->count; i++) {
-        UnsafeDictNode *n = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, i);
+        UnsafeDictNode *n = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, i);
         if (n->value != UNSAFEDICT_EMPTY) entry_count++;
     }
 
@@ -412,7 +412,7 @@ static int32_t UnsafeVariedDictionary_Walk(UnsafeVariedDictionary *dict, const v
         for (int shift = 6; shift >= 0; shift -= 2) {
             uint8_t pair = (byte >> shift) & 0x03;
 
-            UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)current);
+            UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)current);
             int32_t next = node->children[pair];
 
             if (next == UNSAFEDICT_EMPTY) {
@@ -420,7 +420,7 @@ static int32_t UnsafeVariedDictionary_Walk(UnsafeVariedDictionary *dict, const v
                 UnsafeDictNode empty = UnsafeDictNode_Empty();
                 next = (int32_t)dict->nodes->count;
                 UnsafeArray_Add(dict->nodes, &empty);
-                node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)current);
+                node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)current);
                 node->children[pair] = next;
             }
 
@@ -436,7 +436,7 @@ static int UnsafeVariedDictionary_Set(UnsafeVariedDictionary *dict, const void *
     if (key_len > UNSAFEDICT_MAX_KEY_LEN) return -1;
 
     int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 1);
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
 
     if (node->value != UNSAFEDICT_EMPTY) return -1;
 
@@ -445,7 +445,7 @@ static int UnsafeVariedDictionary_Set(UnsafeVariedDictionary *dict, const void *
     entry.size = value_size;
 
     if (dict->free_list->count > 0) {
-        int32_t slot = UnsafeArray_GetDeref(dict->free_list, dict->free_list->count - 1, int32_t);
+        int32_t slot = UnsafeArray_GetDerefFast(dict->free_list, dict->free_list->count - 1, int32_t);
         dict->free_list->count--;
         UnsafeArray_Set(dict->entries, (uint32_t)slot, &entry);
         node->value = slot;
@@ -461,21 +461,21 @@ static void *UnsafeVariedDictionary_Get(UnsafeVariedDictionary *dict, const void
     int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
     if (node_idx == UNSAFEDICT_EMPTY) return NULL;
 
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     if (node->value == UNSAFEDICT_EMPTY) return NULL;
 
-    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
-    return UnsafeArray_Get(dict->data, entry->offset);
+    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_GetFast(dict->entries, (uint32_t)node->value);
+    return UnsafeArray_GetFast(dict->data, entry->offset);
 }
 
 static uint32_t UnsafeVariedDictionary_GetSize(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len) {
     int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
     if (node_idx == UNSAFEDICT_EMPTY) return 0;
 
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     if (node->value == UNSAFEDICT_EMPTY) return 0;
 
-    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_GetFast(dict->entries, (uint32_t)node->value);
     return entry->size;
 }
 
@@ -487,10 +487,10 @@ static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const voi
     int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
     if (node_idx == UNSAFEDICT_EMPTY) return -1;
 
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     if (node->value == UNSAFEDICT_EMPTY) return -1;
 
-    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_GetFast(dict->entries, (uint32_t)node->value);
     _UnsafeVaried_FreeData(dict->data_free_list, entry->offset, entry->size);
 
     UnsafeArray_Add(dict->free_list, &node->value);
@@ -501,9 +501,9 @@ static int UnsafeVariedDictionary_Remove(UnsafeVariedDictionary *dict, const voi
 static int UnsafeVariedDictionary_Upsert(UnsafeVariedDictionary *dict, const void *key, uint32_t key_len, const void *value, uint32_t value_size) {
     int32_t node_idx = UnsafeVariedDictionary_Walk(dict, key, key_len, 0);
     if (node_idx != UNSAFEDICT_EMPTY) {
-        UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+        UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
         if (node->value != UNSAFEDICT_EMPTY) {
-            UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+            UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_GetFast(dict->entries, (uint32_t)node->value);
             if (value_size <= entry->size) {
                 memcpy(dict->data->data + entry->offset, value, value_size);
                 if (entry->size > value_size) {
@@ -529,12 +529,12 @@ static void _UnsafeVariedDictionary_ForEachWalk(
     uint8_t *key_buf, uint32_t depth,
     UnsafeVariedDictForEachFn fn
 ) {
-    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
 
     if (node->value != UNSAFEDICT_EMPTY) {
-        UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+        UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_GetFast(dict->entries, (uint32_t)node->value);
         uint32_t key_len = depth / 4;
-        fn(key_buf, key_len, UnsafeArray_Get(dict->data, entry->offset), entry->size);
+        fn(key_buf, key_len, UnsafeArray_GetFast(dict->data, entry->offset), entry->size);
     }
 
     for (int child = 0; child < 4; child++) {
@@ -550,7 +550,7 @@ static void _UnsafeVariedDictionary_ForEachWalk(
 
         _UnsafeVariedDictionary_ForEachWalk(dict, node->children[child], key_buf, depth + 1, fn);
 
-        node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+        node = (UnsafeDictNode *)UnsafeArray_GetFast(dict->nodes, (uint32_t)node_idx);
     }
 }
 

@@ -30,11 +30,19 @@ static void UnsafeArray_Destroy(UnsafeArray *arr) {
 }
 
 // Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
-static void *UnsafeArray_Get(UnsafeArray *arr, uint32_t index) {
+// Bounds-checked get -- returns NULL for out-of-bounds indices.
+static inline void *UnsafeArray_Get(UnsafeArray *arr, uint32_t index) {
     if (index >= arr->count) return NULL;
     return arr->data + (size_t)index * arr->element_size;
 }
-static void UnsafeArray_Set(UnsafeArray *arr, uint32_t index, const void *value) {
+
+// Unchecked get -- no bounds check, no branch. For internal use where
+// the index is guaranteed valid by construction (e.g. hashmap/dict internals).
+static inline void *UnsafeArray_GetFast(UnsafeArray *arr, uint32_t index) {
+    return arr->data + (size_t)index * arr->element_size;
+}
+
+static inline void UnsafeArray_Set(UnsafeArray *arr, uint32_t index, const void *value) {
     memcpy(arr->data + (size_t)index * arr->element_size, value, arr->element_size);
 }
 
@@ -117,8 +125,8 @@ static int UnsafeArray_ShrinkToFit(UnsafeArray *arr) {
     return 0;
 }
 
-// Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
 #define UnsafeArray_GetDeref(arr, index, type) (*(type *)UnsafeArray_Get(arr, index))
+#define UnsafeArray_GetDerefFast(arr, index, type) (*(type *)UnsafeArray_GetFast(arr, index))
 
 #define UnsafeArray_SetValue(arr, index, type, value) \
     UnsafeArray_Set(arr, index, &(type){value})
@@ -193,14 +201,12 @@ typedef struct {
 static void _UnsafeVaried_FreeData(UnsafeArray *data_free_list, uint32_t offset, uint32_t size) {
     if (size == 0) return;
     for (uint32_t i = 0; i < data_free_list->count; i++) {
-        _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, i);
-        if (r == NULL) continue;
+        _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_GetFast(data_free_list, i);
         if (r->offset + r->size == offset) {
             r->size += size;
             for (uint32_t j = 0; j < data_free_list->count; j++) {
                 if (j == i) continue;
-                _UnsafeVariedFreeRegion *r2 = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, j);
-                if (r2 == NULL) continue;
+                _UnsafeVariedFreeRegion *r2 = (_UnsafeVariedFreeRegion *)UnsafeArray_GetFast(data_free_list, j);
                 if (r->offset + r->size == r2->offset) {
                     r->size += r2->size;
                     UnsafeArray_RemoveSwap(data_free_list, j);
@@ -214,8 +220,7 @@ static void _UnsafeVaried_FreeData(UnsafeArray *data_free_list, uint32_t offset,
             r->size += size;
             for (uint32_t j = 0; j < data_free_list->count; j++) {
                 if (j == i) continue;
-                _UnsafeVariedFreeRegion *r2 = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, j);
-                if (r2 == NULL) continue;
+                _UnsafeVariedFreeRegion *r2 = (_UnsafeVariedFreeRegion *)UnsafeArray_GetFast(data_free_list, j);
                 if (r2->offset + r2->size == r->offset) {
                     r2->size += r->size;
                     UnsafeArray_RemoveSwap(data_free_list, i);
@@ -233,8 +238,7 @@ static uint32_t _UnsafeVaried_WriteData(UnsafeArray *data, UnsafeArray *data_fre
                                          const void *value, uint32_t value_size) {
     if (value_size == 0) return data->count;
     for (uint32_t i = 0; i < data_free_list->count; i++) {
-        _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, i);
-        if (r == NULL) continue;
+        _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_GetFast(data_free_list, i);
         if (r->size >= value_size) {
             uint32_t offset = r->offset;
             memcpy(data->data + offset, value, value_size);
