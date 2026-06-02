@@ -36,7 +36,23 @@ int err = UnsafeHashMap_Set(map, "health", 6, &val);
 UnsafeHashMap_SetValue(map, "mana", 4, int, 50);
 ```
 
-**Set does NOT overwrite.** If the key already exists, it returns -1. This prevents silent loss of pointers or heap-allocated values that the caller is responsible for disposing. If you need to update a value, use `Get` and modify in-place.
+**Set does NOT overwrite.** If the key already exists, it returns -1. This prevents silent loss of pointers or heap-allocated values that the caller is responsible for disposing. To update, use `Upsert` or `Get` + modify in-place.
+
+### Upsert (Insert or Overwrite)
+
+```c
+int val = 100;
+UnsafeHashMap_Upsert(map, "health", 6, &val);   // inserts "health" => 100
+
+val = 80;
+UnsafeHashMap_Upsert(map, "health", 6, &val);   // overwrites to 80
+// Returns 0 on success, -1 on failure
+
+// String literal macro
+UnsafeHashMap_SUpsert(map, "health", &val);
+```
+
+Upsert overwrites the value in place (memcpy into the existing slot) if the key exists, or falls through to `Set` if it does not. Same return semantics as `Set`.
 
 ## Reading
 
@@ -80,10 +96,9 @@ int *hp = (int *)UnsafeHashMap_Get(map, "health", 6);
 ```c
 int err = UnsafeHashMap_Remove(map, "mana", 4);
 // Returns 0 on success, -1 if key not found
-// Note: the value slot in the backing array is not reclaimed
 ```
 
-Removed entries are marked with a tombstone so that linear probing continues to work correctly for keys that were inserted after the removed entry.
+Removed entries are marked with a tombstone so that linear probing continues to work correctly for keys that were inserted after the removed entry. The freed value slot is added to the free list and reused by subsequent `Set` or `Upsert` calls.
 
 ## Key Types
 
@@ -235,6 +250,7 @@ UnsafeHashMap_Log(map, fmt_vec2, 1);      // LOG_INFO, string keys
 | `Get(map, key, key_len)` | `void*` | Lookup (NULL if missing) |
 | `Has(map, key, key_len)` | `int` | 1 if exists, 0 if not |
 | `Remove(map, key, key_len)` | `int` | Remove (0=ok, -1=missing) |
+| `Upsert(map, key, key_len, &val)` | `int` | Insert or overwrite (0=ok, -1=fail) |
 | `ForEach(map, fn)` | `void` | Iterate all entries |
 | `SetValue(map, key, len, type, val)` | macro | Insert by value |
 | `GetDeref(map, key, len, type)` | macro | Read by value (dereferences Get) |
@@ -248,6 +264,7 @@ UnsafeHashMap_Log(map, fmt_vec2, 1);      // LOG_INFO, string keys
 | `SRemove(map, str_key)` | macro | Remove with string literal key |
 | `SSetValue(map, str_key, type, val)` | macro | Insert by value, string literal key |
 | `SGetDeref(map, str_key, type)` | macro | Read by value, string literal key |
+| `SUpsert(map, str_key, &val)` | macro | Upsert with string literal key |
 
 All `S`-macros reject `char*` at compile time -- string literals only. Requires `_UNSAFE_STRLITERAL_LEN` from `UnsafeDictionary.h`.
 
@@ -287,7 +304,29 @@ int err = UnsafeVariedHashMap_Set(map, "position", 8, vec, sizeof(vec));
 UnsafeVariedHashMap_SetValue(map, "health", 6, int, 100);
 ```
 
-**Set does NOT overwrite.** Same semantics as `UnsafeHashMap_Set`.
+**Set does NOT overwrite.** Same semantics as `UnsafeHashMap_Set`. To update, use `Upsert`.
+
+### Upsert (Insert or Overwrite)
+
+```c
+float vec3[3] = {1.0f, 2.0f, 3.0f};
+UnsafeVariedHashMap_Upsert(map, "position", 8, vec3, sizeof(vec3));  // inserts
+
+float vec2[2] = {5.0f, 6.0f};
+UnsafeVariedHashMap_Upsert(map, "position", 8, vec2, sizeof(vec2));  // overwrites
+// Returns 0 on success, -1 on failure
+
+// String literal macro
+UnsafeVariedHashMap_SUpsert(map, "position", vec2, sizeof(vec2));
+```
+
+Upsert handles three cases when the key already exists:
+
+- **Same size:** writes in place (zero waste)
+- **Smaller size:** writes in place, frees the leftover tail bytes back to the data free list
+- **Larger size:** frees the old region entirely, allocates a new region (first-fit from free list, then append)
+
+If the key does not exist, falls through to `Set`.
 
 ## Reading
 
@@ -327,7 +366,11 @@ int err = UnsafeVariedHashMap_Remove(map, "position", 8);
 // Returns 0 on success, -1 if key not found
 ```
 
-Entry index slots are reclaimed via the free list, but data bytes in the buffer are not -- acceptable for short-lived maps.
+Remove frees both the entry index slot (via entry free list) and the data bytes (via data free list with adjacent coalescing). Freed data regions are reused by subsequent `Set` or `Upsert` calls using first-fit allocation.
+
+## Memory Model (Data Reuse)
+
+The data buffer is no longer append-only. When values are removed or shrunk via Upsert, the freed byte regions are tracked in a `data_free_list`. New writes check the free list first (first-fit), falling back to appending only when no free region is large enough. Adjacent free regions are coalesced to reduce fragmentation. See "Shared Varied-Data Allocator" in UnsafeArray.md for details.
 
 ## String Literal Key Macros
 
@@ -356,7 +399,8 @@ UnsafeVariedHashMap_SSet(map, "position", vec, sizeof(vec));
 | `Get(map, key, key_len)` | `void*` | Lookup (NULL if missing) |
 | `GetSize(map, key, key_len)` | `uint32_t` | Byte size of stored value (0 if missing) |
 | `Has(map, key, key_len)` | `int` | 1 if exists, 0 if not |
-| `Remove(map, key, key_len)` | `int` | Remove (0=ok, -1=missing) |
+| `Remove(map, key, key_len)` | `int` | Remove (0=ok, -1=missing, frees data region) |
+| `Upsert(map, key, key_len, val_ptr, val_size)` | `int` | Insert or overwrite (0=ok, -1=fail) |
 | `ForEach(map, fn)` | `void` | Iterate all entries (fn gets value_size) |
 | `SetValue(map, key, len, type, val)` | macro | Insert by value |
 | `GetDeref(map, key, len, type)` | macro | Read by value (dereferences Get) |
@@ -367,6 +411,7 @@ UnsafeVariedHashMap_SSet(map, "position", vec, sizeof(vec));
 | `SRemove(map, str_key)` | macro | Remove with string literal key |
 | `SSetValue(map, str_key, type, val)` | macro | Insert by value, string literal key |
 | `SGetDeref(map, str_key, type)` | macro | Read by value, string literal key |
+| `SUpsert(map, str_key, val_ptr, val_size)` | macro | Upsert with string literal key |
 
 ## UnsafeDictionary vs UnsafeHashMap
 
@@ -383,8 +428,8 @@ The API is identical -- switching between them requires only changing the type n
 ## Limitations
 
 - Max key length: 256 bytes (returns -1 if exceeded)
-- Set does not overwrite -- returns -1 if key exists (prevents lost pointers / undisposed values)
-- Remove does not reclaim the value slot (bucket is tombstoned, value stays in backing array)
-- UnsafeVariedHashMap data bytes are never reclaimed on remove (entry index slots are reused)
+- Set does not overwrite -- returns -1 if key exists (use Upsert to overwrite)
+- Remove reclaims the value slot via free list (reused by next Set/Upsert)
+- UnsafeVariedHashMap Remove frees data regions with coalescing (reused by next Set/Upsert)
 - Iteration order is hash-dependent, not insertion order or sorted order
 - Bucket count is always a power of 2

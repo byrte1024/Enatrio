@@ -1,6 +1,8 @@
 # UnsafeArray
 
-A generic, type-erased dynamic array. Stores elements as raw bytes -- no bounds checking, hence "Unsafe".
+A generic, type-erased dynamic array. Stores elements as raw bytes with minimal overhead, hence "Unsafe".
+
+This header also defines the **shared varied-data allocator** used by UnsafeVariedHashMap and UnsafeVariedDictionary for data buffer region management (free list with adjacent coalescing).
 
 Located in `src/cts/` (cts = collections).
 
@@ -34,15 +36,28 @@ for (int i = 0; i < 1000; i++)
     UnsafeArray_Add(arr, &i);        // no need to worry about capacity
 ```
 
+### Bulk Add
+
+```c
+int batch[4] = {10, 20, 30, 40};
+UnsafeArray_AddBulk(arr, batch, 4);  // append 4 elements in one memcpy
+// Returns 0 on success, -1 on allocation failure
+// Grows capacity as needed before copying
+```
+
 ## Reading Elements
 
 ```c
-// Via pointer (returns void*, you cast)
+// Via pointer (returns void*, NULL if index >= count)
 int *ptr = (int *)UnsafeArray_Get(arr, 0);
+if (ptr) printf("val = %d\n", *ptr);
 
 // Via dereference macro (returns the value directly)
+// WARNING: dereferences NULL if index is out of bounds -- check first
 int val = UnsafeArray_GetDeref(arr, 0, int);
 ```
+
+**Get is bounds-checked.** Returns NULL if `index >= arr->count`. Always check the return value when the index might be out of range.
 
 ## Writing Elements
 
@@ -71,9 +86,20 @@ UnsafeArray_RemoveSwap(arr, 2);
 
 ```c
 UnsafeArray_Clear(arr);          // reset count to 0 (does not free memory)
+UnsafeArray_ShrinkToFit(arr);    // realloc buffer down to count (frees excess capacity)
 arr->count;                      // current element count
 arr->capacity;                   // current capacity
 arr->element_size;               // size of each element in bytes
+```
+
+### ShrinkToFit
+
+```c
+// After removing many elements, reclaim unused memory:
+UnsafeArray_ShrinkToFit(arr);
+// Returns 0 on success, -1 on realloc failure
+// No-op if count == capacity or count == 0
+// After success, capacity == count
 ```
 
 ## Storing Pointers
@@ -275,3 +301,29 @@ UnsafeArray_Destroy(evens);
 | `LINQ_WHERE`, `LINQ_SELECT` | Yes | Yes |
 | `OrderBy`, `Reverse`, `Shuffle`, `Distinct`, `RemoveAll`, `ForEach` | No | No (in-place) |
 | `First`, `Last`, `Min`, `Max` | No | No (returns pointer into source) |
+
+---
+
+## Shared Varied-Data Allocator
+
+UnsafeArray.h defines the internal allocator used by UnsafeVariedHashMap and UnsafeVariedDictionary for their data buffers. This is not part of the public API but is documented here because it lives in this header.
+
+### How It Works
+
+Varied-size collections store values in a flat byte buffer (`UnsafeArray` with `element_size = 1`). When a value is removed, its byte region is added to a free list (`UnsafeArray` of `_UnsafeVariedFreeRegion`). When a new value is written, the allocator uses first-fit from the free list before appending to the end of the buffer.
+
+### Adjacent Coalescing
+
+When a region is freed via `_UnsafeVaried_FreeData`, it checks for adjacent free regions and merges them. This prevents fragmentation from repeated insert/remove cycles:
+
+- If the freed region is immediately after an existing free region, they merge
+- If the freed region is immediately before an existing free region, they merge
+- After one merge, a second pass checks if the merged region can coalesce with yet another neighbor
+
+### Data Structures
+
+| Type | Purpose |
+|---|---|
+| `_UnsafeVariedFreeRegion` | `{ uint32_t offset, size }` -- one free byte region |
+| `_UnsafeVaried_FreeData(list, offset, size)` | Return a byte region to the free list (with coalescing) |
+| `_UnsafeVaried_WriteData(data, list, value, size)` | Write bytes using first-fit from free list, or append |

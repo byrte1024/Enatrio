@@ -36,7 +36,23 @@ int err = UnsafeDictionary_Set(dict, "health", 6, &val);
 UnsafeDictionary_SetValue(dict, "mana", 4, int, 50);
 ```
 
-**Set does NOT overwrite.** If the key already exists, it returns -1. This prevents silent loss of pointers or heap-allocated values that the caller is responsible for disposing. If you need to update a value, use `Get` and modify in-place.
+**Set does NOT overwrite.** If the key already exists, it returns -1. This prevents silent loss of pointers or heap-allocated values that the caller is responsible for disposing. To update, use `Upsert` or `Get` + modify in-place.
+
+### Upsert (Insert or Overwrite)
+
+```c
+int val = 100;
+UnsafeDictionary_Upsert(dict, "health", 6, &val);   // inserts "health" => 100
+
+val = 80;
+UnsafeDictionary_Upsert(dict, "health", 6, &val);   // overwrites to 80
+// Returns 0 on success, -1 on failure
+
+// String literal macro
+UnsafeDictionary_SUpsert(dict, "health", &val);
+```
+
+Upsert overwrites the value in place (memcpy into the existing slot) if the key exists, or falls through to `Set` if it does not. Same return semantics as `Set`.
 
 ## Reading
 
@@ -234,6 +250,7 @@ UnsafeDictionary_Log(dict, fmt_vec2, 1);      // LOG_INFO, string keys
 | `Get(dict, key, key_len)` | `void*` | Lookup (NULL if missing) |
 | `Has(dict, key, key_len)` | `int` | 1 if exists, 0 if not |
 | `Remove(dict, key, key_len)` | `int` | Remove (0=ok, -1=missing) |
+| `Upsert(dict, key, key_len, &val)` | `int` | Insert or overwrite (0=ok, -1=fail) |
 | `ForEach(dict, fn)` | `void` | Iterate all entries (trie order) |
 | `SetValue(dict, key, len, type, val)` | macro | Insert by value |
 | `GetDeref(dict, key, len, type)` | macro | Read by value (dereferences Get) |
@@ -247,6 +264,7 @@ UnsafeDictionary_Log(dict, fmt_vec2, 1);      // LOG_INFO, string keys
 | `SRemove(dict, str_key)` | macro | Remove with string literal key |
 | `SSetValue(dict, str_key, type, val)` | macro | Insert by value, string literal key |
 | `SGetDeref(dict, str_key, type)` | macro | Read by value, string literal key |
+| `SUpsert(dict, str_key, &val)` | macro | Upsert with string literal key |
 
 All `S`-macros reject `char*` at compile time -- string literals only.
 
@@ -284,7 +302,29 @@ int err = UnsafeVariedDictionary_Set(dict, "position", 8, &pos, sizeof(Vec2));
 UnsafeVariedDictionary_SetValue(dict, "health", 6, int, 100);
 ```
 
-**Set does NOT overwrite** -- returns -1 if the key exists.
+**Set does NOT overwrite** -- returns -1 if the key exists. To update, use `Upsert`.
+
+### Upsert (Insert or Overwrite)
+
+```c
+float vec3[3] = {1.0f, 2.0f, 3.0f};
+UnsafeVariedDictionary_Upsert(dict, "position", 8, vec3, sizeof(vec3));  // inserts
+
+float vec2[2] = {5.0f, 6.0f};
+UnsafeVariedDictionary_Upsert(dict, "position", 8, vec2, sizeof(vec2));  // overwrites
+// Returns 0 on success, -1 on failure
+
+// String literal macro
+UnsafeVariedDictionary_SUpsert(dict, "position", vec2, sizeof(vec2));
+```
+
+Upsert handles three cases when the key already exists:
+
+- **Same size:** writes in place (zero waste)
+- **Smaller size:** writes in place, frees the leftover tail bytes back to the data free list
+- **Larger size:** frees the old region entirely, allocates a new region (first-fit from free list, then append)
+
+If the key does not exist, falls through to `Set`.
 
 ## Reading
 
@@ -306,8 +346,13 @@ int exists = UnsafeVariedDictionary_Has(dict, "health", 6);
 
 int err = UnsafeVariedDictionary_Remove(dict, "health", 6);
 // Returns 0 on success, -1 if not found
-// Entry index slots are reclaimed, but data bytes in the buffer are not
 ```
+
+Remove frees both the entry index slot (via entry free list) and the data bytes (via data free list with adjacent coalescing). Freed data regions are reused by subsequent `Set` or `Upsert` calls.
+
+## Memory Model (Data Reuse)
+
+The data buffer is no longer append-only. When values are removed or shrunk via Upsert, the freed byte regions are tracked in a `data_free_list`. New writes check the free list first (first-fit), falling back to appending only when no free region is large enough. Adjacent free regions are coalesced to reduce fragmentation. See "Shared Varied-Data Allocator" in UnsafeArray.md for details.
 
 ## Iterating
 
@@ -330,6 +375,7 @@ UnsafeVariedDictionary_SHas(dict, "pos");                // int
 UnsafeVariedDictionary_SRemove(dict, "pos");             // int
 UnsafeVariedDictionary_SGetDeref(dict, "pos", Vec2);     // Vec2
 UnsafeVariedDictionary_SSetValue(dict, "hp", int, 100);  // macro
+UnsafeVariedDictionary_SUpsert(dict, "pos", &pos, sizeof(Vec2)); // upsert
 ```
 
 ## UnsafeVariedDictionary API Reference
@@ -342,7 +388,8 @@ UnsafeVariedDictionary_SSetValue(dict, "hp", int, 100);  // macro
 | `Get(dict, key, key_len)` | `void*` | Lookup (NULL if missing) |
 | `GetSize(dict, key, key_len)` | `uint32_t` | Byte size of stored value (0 if missing) |
 | `Has(dict, key, key_len)` | `int` | 1 if exists, 0 if not |
-| `Remove(dict, key, key_len)` | `int` | Remove (0=ok, -1=missing) |
+| `Remove(dict, key, key_len)` | `int` | Remove (0=ok, -1=missing, frees data region) |
+| `Upsert(dict, key, key_len, val_ptr, val_size)` | `int` | Insert or overwrite (0=ok, -1=fail) |
 | `ForEach(dict, fn)` | `void` | Iterate all entries (trie order) |
 | `SetValue(dict, key, len, type, val)` | macro | Insert by value (sizeof computed automatically) |
 | `GetDeref(dict, key, len, type)` | macro | Read by value (dereferences Get) |
@@ -353,13 +400,14 @@ UnsafeVariedDictionary_SSetValue(dict, "hp", int, 100);  // macro
 | `SRemove(dict, str_key)` | macro | Remove with string literal key |
 | `SGetDeref(dict, str_key, type)` | macro | Read by value, string literal key |
 | `SSetValue(dict, str_key, type, val)` | macro | Insert by value, string literal key |
+| `SUpsert(dict, str_key, val_ptr, val_size)` | macro | Upsert with string literal key |
 
 All `S`-macros reject `char*` at compile time -- string literals only.
 
 ## Limitations
 
 - Max key length: 256 bytes (returns -1 if exceeded)
-- Set does not overwrite -- returns -1 if key exists (prevents lost pointers / undisposed values)
+- Set does not overwrite -- returns -1 if key exists (use Upsert to overwrite)
 - Remove reclaims the value slot index but trie nodes remain allocated
-- UnsafeVariedDictionary_Remove reclaims entry index slots but data bytes in the buffer are not reclaimed
+- UnsafeVariedDictionary Remove frees data regions with coalescing (reused by next Set/Upsert)
 - Iteration order is trie-order (sorted by raw key bytes), not insertion order
