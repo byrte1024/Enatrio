@@ -16,6 +16,7 @@
 #include "tests/SelfTests.h"
 #include "tests/SerializationTests.h"
 #include "tests/ByteStreamTests.h"
+#include "tests/InheritanceTests.h"
 
 int main(void) {
     START_LOGGING("tests", LOG_INFO);
@@ -32,6 +33,7 @@ int main(void) {
     run_self_tests();
     run_serialization_tests();
     run_bytestream_tests();
+    run_inheritance_tests();
 
     LOG_INFO("=== Results: %d/%d passed ===", tests_passed, tests_run);
 
