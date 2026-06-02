@@ -346,6 +346,32 @@ in its CAN_RECEIVE/RECEIVE_MESSAGE blocks. Those are handled by GameObject
 via the inheritance chain walk. Only MIDs that the subclass actually overrides
 or introduces need to be listed.
 
+## Performance
+
+Each payload parameter costs ~12-30ns per node in the tree. For a tree with
+100 nodes, a 10-parameter Update message costs ~30us total. Pack related
+parameters into structs to reduce this:
+
+```c
+// SLOW: 3 separate keys = 3 hash lookups per node
+GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {
+    Payload_SetValue(msg, "dt", float, dt);
+    Payload_SetValue(msg, "frame", int, frame);
+    Payload_SetValue(msg, "paused", int, 0);
+}, {});
+
+// FAST: 1 struct key = 1 hash lookup per node
+typedef struct { float dt; int frame; int paused; } FrameInfo;
+GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {
+    Payload_SetValue(msg, "frame", FrameInfo, ((FrameInfo){dt, frame, 0}));
+}, {});
+```
+
+Per-node cost on CI (ubuntu-latest):
+- SpreadMessage overhead: ~40 ns/node
+- Per payload parameter: ~12-30 ns/node
+- Struct-packed single param: ~12 ns/node regardless of struct size
+
 ## Contract
 
 - **Priority 0 is the default.** Children with equal priority are ordered by

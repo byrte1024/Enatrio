@@ -6,7 +6,7 @@
 
 BEGIN_CLASS(0x22AB);
 
-DECLARE_MID(ShimmiShimmiYea);
+DECLARE_MID(ShimmiShimmiYea, 0x01);
 
 MESSAGE_HANDLER_BEGIN(ShimmiShimmiYea)
 

@@ -431,6 +431,75 @@ Three EXTERN macros are provided:
 All three EXTERN macros must be used together for each extern message: declare
 the handler, advertise it in `CAN_RECEIVE`, and route it in `RECEIVE_MESSAGE`.
 
+## Performance
+
+Benchmarked on CI runner (ubuntu-latest, GCC -O2).
+
+### Dispatch overhead
+
+| Operation | ns/op | Per-frame @120fps |
+|-----------|-------|-------------------|
+| PreparePayload + FreePayload (pool) | 3.5 | inf |
+| Dispatch (1 MID, no-op handler) | 7.2 | 1.16M |
+| SELF_DISPATCH (1 SELF MID, no-op) | 39.7 | 210K |
+| CanDispatchMessage (direct) | 3.1 | 2.69M |
+| CanDispatchMessage (chain walk, 3 levels) | 3.4 | 2.45M |
+
+### Payload operations
+
+| Operation | ns/op |
+|-----------|-------|
+| Payload_SetValue (literal key, upsert) | 12.1 |
+| Payload_GetDeref (literal key) | 2.8 |
+
+### Parameter count scaling
+
+Each payload parameter adds ~12-30ns. Packing multiple values into a single
+struct and passing it as one parameter dramatically reduces dispatch cost:
+
+| Approach | 5 values | 10 values |
+|----------|----------|-----------|
+| Individual Payload_SetValue calls | ~199 ns | ~313 ns |
+| One struct via Payload_SetValue | ~63 ns | ~63 ns |
+
+**Recommendation:** For handlers with more than 2-3 parameters, define a
+struct and pass it as a single payload value:
+
+```c
+// Define a params struct
+typedef struct { float x, y, w, h; int color; } DrawParams;
+
+// Set as one value -- only 1 hash lookup instead of 5
+Payload_SetValue(msg, "params", DrawParams,
+    ((DrawParams){ .x = x, .y = y, .w = w, .h = h, .color = c }));
+
+// Read it back in the handler
+MH_ExtractDeref(params, DrawParams);
+// Use params.x, params.y, etc.
+```
+
+### MID dispatch scaling (O(1) confirmed)
+
+| Class MID count | First MID | Last MID | Ratio |
+|-----------------|-----------|----------|-------|
+| 32 | 9.7 ns | 8.7 ns | 0.9x |
+| 100 | 9.0 ns | 9.0 ns | 1.0x |
+| 1,000 | 8.8 ns | 9.3 ns | 1.1x |
+
+Integer MIDs with switch/case dispatch. First and last MID are identical cost
+regardless of class size.
+
+### Key types: literal vs dynamic
+
+| Key type | Set cost | Notes |
+|----------|----------|-------|
+| Literal (S-macros) | ~12 ns | Zero-copy pointer, compiler-folded hash |
+| Dynamic (snprintf) | ~125 ns | malloc + runtime hash + memcpy |
+
+Always use string literal keys via S-macros (`Payload_SetValue`,
+`Payload_GetDeref`, etc.) for hot paths. Dynamic keys (`UnsafeVariedHashMap_Set`
+with runtime-constructed keys) are 10x slower.
+
 ## Contract
 
 - **ClassID 0 is reserved.** `CID_Untyped` (`0x0000`) cannot be registered or

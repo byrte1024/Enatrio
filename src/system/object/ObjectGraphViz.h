@@ -87,18 +87,19 @@ static void Object_VisualizeGraph(const char *filepath, TempObjectReference *roo
                 TempObjectReference target = (ref_ptr && *ref_ptr) ? ObjectContainer_TempFrom(*ref_ptr) : NULL;
                 int target_id = target ? _viz_find_id(nodes, target) : -1;
 
+                uint32_t klen = _HASHKEY_LEN(e->key_len);
                 int is_string = 1;
-                for (uint32_t k = 0; k < e->key_len; k++) {
+                for (uint32_t k = 0; k < klen; k++) {
                     unsigned char ch = ((unsigned char*)e->key)[k];
                     if (ch < 32 || ch > 126) { is_string = 0; break; }
                 }
 
                 fprintf(f, "  ");
                 if (is_string)
-                    fprintf(f, "\"%.*s\"", (int)e->key_len, (char*)e->key);
+                    fprintf(f, "\"%.*s\"", (int)klen, (char*)e->key);
                 else {
                     fprintf(f, "[");
-                    for (uint32_t k = 0; k < e->key_len; k++) {
+                    for (uint32_t k = 0; k < klen; k++) {
                         if (k > 0) fprintf(f, " ");
                         fprintf(f, "%02X", ((unsigned char*)e->key)[k]);
                     }

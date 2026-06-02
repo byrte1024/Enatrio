@@ -1,7 +1,7 @@
 #pragma once
 #define TYPE BadGO
 BEGIN_CLASS(0xA110);
-DECLARE_MID(DoStuff);
+DECLARE_MID(DoStuff, 0x01);
 MESSAGE_HANDLER_BEGIN(DoStuff)
     Payload_SetValue(payload, "__go_consumed__", int, 1);
 MESSAGE_HANDLER_END()

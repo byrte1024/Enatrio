@@ -66,7 +66,7 @@ typedef struct {
 // SELF message macros
 // ============================================================
 
-#define DECLARE_SELF_MID(msgname) DECLARE_MID(BAT2(SELF_, msgname))
+#define DECLARE_SELF_MID(msgname, local_id) DECLARE_MID(BAT2(SELF_, msgname), local_id)
 
 #define LINTNORE
 #define SELF_MESSAGE_HANDLER_BEGIN(msgname) \

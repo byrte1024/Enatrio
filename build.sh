@@ -47,6 +47,10 @@ elif [ "$BUILD_TYPE" = "tests" ]; then
     BUILD_DIR="build/tests/$OS_NAME"
     CFLAGS="$C_STD -g3 -O0 -DDEBUG -DINTESTING -DPROJECT_NAME=$PROJECT_NAME"
     echo "Building TESTS ($OS_NAME)..."
+elif [ "$BUILD_TYPE" = "bench" ]; then
+    BUILD_DIR="build/bench/$OS_NAME"
+    CFLAGS="$C_STD -O2 -DNDEBUG -DINBENCH -DPROJECT_NAME=$PROJECT_NAME"
+    echo "Building BENCH ($OS_NAME)..."
 else
     BUILD_DIR="build/debug/$OS_NAME"
     CFLAGS="$C_STD -g3 -O0 -DDEBUG -DPROJECT_NAME=$PROJECT_NAME"
