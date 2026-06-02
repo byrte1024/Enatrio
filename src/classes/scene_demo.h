@@ -31,8 +31,8 @@ MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
     IGNORE_BASE();
-    float dt = 0.0f;
-    if (MH_Has(dt)) dt = MH_GetDeref(dt, float);
+    float *_dt = MH_Get(dt, float);
+    float dt = _dt ? *_dt : 0.0f;
 
     float x = Self_GetDeref("x", float);
     float dx = Self_GetDeref("dx", float);
@@ -106,8 +106,8 @@ MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
     IGNORE_BASE();
-    float dt = 0.0f;
-    if (MH_Has(dt)) dt = MH_GetDeref(dt, float);
+    float *_dt = MH_Get(dt, float);
+    float dt = _dt ? *_dt : 0.0f;
 
     float angle = Self_GetDeref("angle", float);
     float speed = Self_GetDeref("speed", float);
@@ -173,8 +173,8 @@ MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
     IGNORE_BASE();
-    float dt = 0.0f;
-    if (MH_Has(dt)) dt = MH_GetDeref(dt, float);
+    float *_dt = MH_Get(dt, float);
+    float dt = _dt ? *_dt : 0.0f;
 
     float x = Self_GetDeref("x", float);
     float y = Self_GetDeref("y", float);
