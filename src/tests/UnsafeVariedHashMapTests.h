@@ -454,6 +454,70 @@ static void test_varied_hm_layout_remove_set_reuse(void) {
     PASS();
 }
 
+static void test_varied_hm_metric_inline_upsert_cycle_no_growth(void) {
+    TEST("varied hashmap metric: inline Remove+Set cycle no data growth");
+    UnsafeVariedHashMap *map = UnsafeVariedHashMap_Create(8);
+    int val = 42;
+    UnsafeVariedHashMap_SSet(map, "k", &val, sizeof(int));
+    uint32_t baseline = map->data->count;
+    for (int i = 0; i < 1000; i++) {
+        val = i;
+        UnsafeVariedHashMap_SRemove(map, "k");
+        UnsafeVariedHashMap_SSet(map, "k", &val, sizeof(int));
+    }
+    ASSERT(map->data->count == baseline);
+    UnsafeVariedHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_varied_hm_metric_inline_oscillate_no_growth(void) {
+    TEST("varied hashmap metric: inline Remove+Set oscillating sizes no data growth");
+    UnsafeVariedHashMap *map = UnsafeVariedHashMap_Create(8);
+    double dbl_val = 3.14;
+    UnsafeVariedHashMap_SSet(map, "val", &dbl_val, sizeof(double));
+    uint32_t baseline = map->data->count;
+    int int_val = 1;
+    for (int i = 0; i < 1000; i++) {
+        int_val = i;
+        dbl_val = (double)i;
+        UnsafeVariedHashMap_SRemove(map, "val");
+        UnsafeVariedHashMap_SSet(map, "val", &int_val, sizeof(int));
+        UnsafeVariedHashMap_SRemove(map, "val");
+        UnsafeVariedHashMap_SSet(map, "val", &dbl_val, sizeof(double));
+    }
+    ASSERT(map->data->count == baseline);
+    UnsafeVariedHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_varied_hm_layout_inline_upsert_reuse(void) {
+    TEST("varied hashmap layout: inline Remove+Set reuses data offset");
+    UnsafeVariedHashMap *map = UnsafeVariedHashMap_Create(8);
+    int val = 42;
+    UnsafeVariedHashMap_SSet(map, "k", &val, sizeof(int));
+
+    uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, "k", 1);
+    UnsafeVariedHashEntry *e = &map->buckets[slot];
+    UnsafeVariedHashEntryInfo *info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+    uint32_t original_offset = info->offset;
+
+    UnsafeVariedHashMap_SRemove(map, "k");
+
+    val = 99;
+    UnsafeVariedHashMap_SSet(map, "k", &val, sizeof(int));
+
+    slot = _UnsafeVariedHashMap_FindSlot(map, "k", 1);
+    e = &map->buckets[slot];
+    info = (UnsafeVariedHashEntryInfo *)UnsafeArray_Get(map->entries, (uint32_t)e->value);
+    ASSERT(info->offset == original_offset);
+
+    int *got = (int *)UnsafeArray_Get(map->data, info->offset);
+    ASSERT(*got == 99);
+
+    UnsafeVariedHashMap_Destroy(map);
+    PASS();
+}
+
 static void run_unsafe_varied_hashmap_tests(void) {
     LOG_INFO("=== UnsafeVariedHashMap Tests ===");
     test_varied_hm_create_destroy();
@@ -481,8 +545,11 @@ static void run_unsafe_varied_hashmap_tests(void) {
     test_varied_hm_metric_upsert_cycle_no_growth();
     test_varied_hm_metric_oscillate_no_growth();
     test_varied_hm_metric_upsert_smaller_no_growth();
+    test_varied_hm_metric_inline_upsert_cycle_no_growth();
+    test_varied_hm_metric_inline_oscillate_no_growth();
     // Layout tests
     test_varied_hm_layout_bytes();
     test_varied_hm_layout_upsert_in_place();
     test_varied_hm_layout_remove_set_reuse();
+    test_varied_hm_layout_inline_upsert_reuse();
 }

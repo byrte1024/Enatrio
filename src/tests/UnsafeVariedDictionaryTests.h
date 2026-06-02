@@ -495,6 +495,77 @@ static void test_varied_dict_layout_remove_set_reuse(void) {
     PASS();
 }
 
+static void test_varied_dict_metric_inline_upsert_cycle_no_growth(void) {
+    TEST("varied dict metric: inline Remove+Set cycle no data growth");
+    UnsafeVariedDictionary *dict = UnsafeVariedDictionary_Create(8);
+    int32_t val = 0;
+    UnsafeVariedDictionary_SSet(dict, "k", &val, sizeof(int32_t));
+    uint32_t baseline = dict->data->count;
+    for (int i = 0; i < 1000; i++) {
+        UnsafeVariedDictionary_SRemove(dict, "k");
+        val = i;
+        UnsafeVariedDictionary_SSet(dict, "k", &val, sizeof(int32_t));
+    }
+    ASSERT(dict->data->count == baseline);
+    UnsafeVariedDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_varied_dict_metric_inline_oscillate_no_growth(void) {
+    TEST("varied dict metric: inline Remove+Set oscillating 4b/8b no data growth");
+    UnsafeVariedDictionary *dict = UnsafeVariedDictionary_Create(8);
+    double dbl_val = 1.0;
+    UnsafeVariedDictionary_SSet(dict, "val", &dbl_val, sizeof(double));
+    uint32_t baseline = dict->data->count;
+    int int_val = 0;
+    for (int i = 0; i < 1000; i++) {
+        int_val = i;
+        dbl_val = (double)i;
+        UnsafeVariedDictionary_SRemove(dict, "val");
+        UnsafeVariedDictionary_SSet(dict, "val", &int_val, sizeof(int));
+        UnsafeVariedDictionary_SRemove(dict, "val");
+        UnsafeVariedDictionary_SSet(dict, "val", &dbl_val, sizeof(double));
+    }
+    ASSERT(dict->data->count == baseline);
+    UnsafeVariedDictionary_Destroy(dict);
+    PASS();
+}
+
+static void test_varied_dict_layout_inline_upsert_reuse(void) {
+    TEST("varied dict layout: inline Remove+Set reuses data offset");
+    UnsafeVariedDictionary *dict = UnsafeVariedDictionary_Create(8);
+    int32_t v1 = 42;
+    UnsafeVariedDictionary_SSet(dict, "k", &v1, sizeof(int32_t));
+
+    int32_t node_idx = UnsafeVariedDictionary_Walk(dict, "k", 1, 0);
+    ASSERT(node_idx != UNSAFEDICT_EMPTY);
+    UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    ASSERT(node->value != UNSAFEDICT_EMPTY);
+    UnsafeVariedEntry *entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+    uint32_t original_offset = entry->offset;
+
+    UnsafeVariedDictionary_SRemove(dict, "k");
+
+    int32_t v2 = 99;
+    UnsafeVariedDictionary_SSet(dict, "k", &v2, sizeof(int32_t));
+
+    node_idx = UnsafeVariedDictionary_Walk(dict, "k", 1, 0);
+    ASSERT(node_idx != UNSAFEDICT_EMPTY);
+    node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+    ASSERT(node->value != UNSAFEDICT_EMPTY);
+    entry = (UnsafeVariedEntry *)UnsafeArray_Get(dict->entries, (uint32_t)node->value);
+
+    ASSERT(entry->offset == original_offset);
+
+    uint8_t *data_ptr = (uint8_t *)dict->data->data + entry->offset;
+    int32_t stored;
+    memcpy(&stored, data_ptr, sizeof(int32_t));
+    ASSERT(stored == 99);
+
+    UnsafeVariedDictionary_Destroy(dict);
+    PASS();
+}
+
 static void run_unsafe_varied_dictionary_tests(void) {
     LOG_INFO("=== UnsafeVariedDictionary Tests ===");
     test_varied_dict_create_destroy();
@@ -524,9 +595,12 @@ static void run_unsafe_varied_dictionary_tests(void) {
     test_varied_dict_metric_remove_set_cycle_no_growth();
     test_varied_dict_metric_upsert_cycle_no_growth();
     test_varied_dict_metric_oscillate_no_growth();
+    test_varied_dict_metric_inline_upsert_cycle_no_growth();
+    test_varied_dict_metric_inline_oscillate_no_growth();
 
     // Layout tests
     test_varied_dict_layout_bytes();
     test_varied_dict_layout_upsert_in_place();
     test_varied_dict_layout_remove_set_reuse();
+    test_varied_dict_layout_inline_upsert_reuse();
 }

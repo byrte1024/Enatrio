@@ -490,6 +490,19 @@ static void test_dict_layout_reuse_after_remove(void) {
     PASS();
 }
 
+static void test_dict_metric_inline_upsert_no_growth(void) {
+    TEST("dict metric: inline Remove+Set does not grow values array");
+    UnsafeDictionary *dict = UnsafeDictionary_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeDictionary_SSet(dict, "k", &v1);
+    uint32_t baseline = dict->values->count;
+    UnsafeDictionary_SRemove(dict, "k");
+    UnsafeDictionary_SSet(dict, "k", &v2);
+    ASSERT(dict->values->count == baseline);
+    UnsafeDictionary_Destroy(dict);
+    PASS();
+}
+
 static void run_unsafe_dictionary_tests(void) {
     LOG_INFO("=== UnsafeDictionary Tests ===");
     test_dict_create_destroy();
@@ -525,6 +538,7 @@ static void run_unsafe_dictionary_tests(void) {
     // Metric tests
     test_dict_metric_remove_set_reuses_slot();
     test_dict_metric_100_remove_add_cycles();
+    test_dict_metric_inline_upsert_no_growth();
     // Layout tests
     test_dict_layout_value_slot();
     test_dict_layout_reuse_after_remove();

@@ -580,6 +580,43 @@ static void test_hm_layout_upsert_in_place(void) {
     PASS();
 }
 
+static void test_hm_metric_inline_upsert_no_values_growth(void) {
+    TEST("hashmap metric: inline Remove+Set does not grow values array");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeHashMap_SSet(map, "key", &v1);
+    uint32_t baseline = map->values->count;
+    UnsafeHashMap_SRemove(map, "key");
+    UnsafeHashMap_SSet(map, "key", &v2);
+    ASSERT(map->values->count == baseline);
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
+static void test_hm_layout_inline_upsert_reuses_slot(void) {
+    TEST("hashmap layout: inline Remove+Set reuses same values index");
+    UnsafeHashMap *map = UnsafeHashMap_Create(sizeof(int), 8);
+    int v1 = 42, v2 = 99;
+    UnsafeHashMap_SSet(map, "key", &v1);
+
+    uint32_t slot1 = _UnsafeHashMap_FindSlot(map, "key", _UNSAFE_STRLITERAL_LEN("key"));
+    int32_t idx1 = map->buckets[slot1].value;
+    ASSERT(idx1 >= 0);
+
+    UnsafeHashMap_SRemove(map, "key");
+    UnsafeHashMap_SSet(map, "key", &v2);
+
+    uint32_t slot2 = _UnsafeHashMap_FindSlot(map, "key", _UNSAFE_STRLITERAL_LEN("key"));
+    int32_t idx2 = map->buckets[slot2].value;
+    ASSERT(idx2 == idx1);
+
+    void *stored = UnsafeArray_Get(map->values, (uint32_t)idx2);
+    ASSERT(_verify_bytes_hm((uint8_t *)stored, 0, (const uint8_t *)&v2, sizeof(int)));
+
+    UnsafeHashMap_Destroy(map);
+    PASS();
+}
+
 static void run_unsafe_hashmap_tests(void) {
     LOG_INFO("=== UnsafeHashMap Tests ===");
     test_hashmap_create_destroy();
@@ -621,9 +658,11 @@ static void run_unsafe_hashmap_tests(void) {
     test_hm_metric_remove_set_reuses_slot();
     test_hm_metric_100_remove_add_cycles();
     test_hm_metric_upsert_no_values_growth();
+    test_hm_metric_inline_upsert_no_values_growth();
 
     // Layout tests
     test_hm_layout_value_at_slot();
     test_hm_layout_reuse_after_remove();
     test_hm_layout_upsert_in_place();
+    test_hm_layout_inline_upsert_reuses_slot();
 }
