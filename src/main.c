@@ -68,22 +68,15 @@ int main() {
   while (!WindowShouldClose()) {
     float dt = GetFrameTime();
 
-    // Update scene graph
-    GAMEOBJECT_DISPATCH(root, MID_BouncingBox_SELF_Update, SPREAD_DOWN, {
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {
       Payload_SetValue(msg, "dt", float, dt);
     }, {});
 
-    GAMEOBJECT_DISPATCH(root, MID_SpinningCircle_SELF_Update, SPREAD_DOWN, {
-      Payload_SetValue(msg, "dt", float, dt);
-    }, {});
-
-    // Render scene graph
     Window_BeginFrame();
     ClearBackground(RAYWHITE);
     DrawText("Enatrio", 4, 4, 8, DARKGRAY);
 
-    GAMEOBJECT_DISPATCH(root, MID_BouncingBox_SELF_Render, SPREAD_DOWN, {}, {});
-    GAMEOBJECT_DISPATCH(root, MID_SpinningCircle_SELF_Render, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Render, SPREAD_DOWN, {}, {});
 
     Window_EndFrame();
   }

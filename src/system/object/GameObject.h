@@ -31,6 +31,8 @@ DECLARE_SELF_MID(AddChild);
 DECLARE_SELF_MID(RemoveChild);
 DECLARE_SELF_MID(SetActive);
 DECLARE_SELF_MID(SetPriority);
+DECLARE_SELF_MID(Update);
+DECLARE_SELF_MID(Render);
 
 // ============================================================
 // SELF_Create (extern Object)
@@ -49,6 +51,18 @@ MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
     CALL_BASE();
+MESSAGE_HANDLER_END()
+
+// ============================================================
+// SELF_Update / SELF_Render -- no-op defaults, override in subclasses
+// ============================================================
+
+SELF_MESSAGE_HANDLER_BEGIN(Update)
+    (void)Self;
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN(Render)
+    (void)Self;
 MESSAGE_HANDLER_END()
 
 // ============================================================
@@ -372,6 +386,8 @@ CAN_RECEIVE_BEGIN()
     SELF_CAN_RECEIVE_MID(RemoveChild)
     SELF_CAN_RECEIVE_MID(SetActive)
     SELF_CAN_RECEIVE_MID(SetPriority)
+    SELF_CAN_RECEIVE_MID(Update)
+    SELF_CAN_RECEIVE_MID(Render)
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
@@ -382,6 +398,8 @@ RECEIVE_MESSAGE_BEGIN()
     SELF_RECEIVE_MESSAGE_ROUTE(RemoveChild)
     SELF_RECEIVE_MESSAGE_ROUTE(SetActive)
     SELF_RECEIVE_MESSAGE_ROUTE(SetPriority)
+    SELF_RECEIVE_MESSAGE_ROUTE(Update)
+    SELF_RECEIVE_MESSAGE_ROUTE(Render)
 RECEIVE_MESSAGE_END()
 
 CLASSDEF_INHERITS(Object)

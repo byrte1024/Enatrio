@@ -2,19 +2,16 @@
 
 #include "../system/object/Self.h"
 #include <raylib.h>
+#include <math.h>
 
 // ============================================================
 // BouncingBox -- a rectangle that bounces horizontally
-// Stores: x, y, dx (velocity), w, h, color_r, color_g, color_b
 // ============================================================
 
 #define TYPE BouncingBox
 
 BEGIN_CLASS(0x2200);
 INHERITS(GameObject);
-
-DECLARE_SELF_MID(Update);
-DECLARE_SELF_MID(Render);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
@@ -32,7 +29,8 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
     CALL_BASE();
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN(Update)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
+    IGNORE_BASE();
     float dt = 0.0f;
     if (MH_Has(dt)) dt = MH_GetDeref(dt, float);
 
@@ -50,7 +48,8 @@ SELF_MESSAGE_HANDLER_BEGIN(Update)
     Self_SetTransient("dx", float, dx);
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN(Render)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)
+    IGNORE_BASE();
     float x = Self_GetDeref("x", float);
     float y = Self_GetDeref("y", float);
     float w = Self_GetDeref("w", float);
@@ -64,15 +63,15 @@ MESSAGE_HANDLER_END()
 CAN_RECEIVE_BEGIN()
     SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
     SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
-    SELF_CAN_RECEIVE_MID(Update)
-    SELF_CAN_RECEIVE_MID(Render)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Update)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Render)
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
     SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
     SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
-    SELF_RECEIVE_MESSAGE_ROUTE(Update)
-    SELF_RECEIVE_MESSAGE_ROUTE(Render)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Update)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Render)
 RECEIVE_MESSAGE_END()
 
 CLASSDEF_INHERITS(GameObject)
@@ -87,9 +86,6 @@ CLASSDEF_INHERITS(GameObject)
 
 BEGIN_CLASS(0x2201);
 INHERITS(GameObject);
-
-DECLARE_SELF_MID(Update);
-DECLARE_SELF_MID(Render);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
@@ -108,7 +104,8 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
     CALL_BASE();
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN(Update)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
+    IGNORE_BASE();
     float dt = 0.0f;
     if (MH_Has(dt)) dt = MH_GetDeref(dt, float);
 
@@ -118,7 +115,8 @@ SELF_MESSAGE_HANDLER_BEGIN(Update)
     Self_SetTransient("angle", float, angle);
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN(Render)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)
+    IGNORE_BASE();
     float cx = Self_GetDeref("cx", float);
     float cy = Self_GetDeref("cy", float);
     float orbit = Self_GetDeref("orbit", float);
@@ -136,15 +134,15 @@ MESSAGE_HANDLER_END()
 CAN_RECEIVE_BEGIN()
     SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
     SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
-    SELF_CAN_RECEIVE_MID(Update)
-    SELF_CAN_RECEIVE_MID(Render)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Update)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Render)
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
     SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
     SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
-    SELF_RECEIVE_MESSAGE_ROUTE(Update)
-    SELF_RECEIVE_MESSAGE_ROUTE(Render)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Update)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Render)
 RECEIVE_MESSAGE_END()
 
 CLASSDEF_INHERITS(GameObject)

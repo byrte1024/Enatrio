@@ -24,8 +24,6 @@ static void _go_exec_reset(void) { _go_exec_count = 0; memset(_go_exec_log, 0, s
 BEGIN_CLASS(0x2001);
 INHERITS(GameObject);
 
-DECLARE_SELF_MID(Update);
-
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
     Self_SetValue("id", int, 0);
@@ -35,7 +33,8 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
     CALL_BASE();
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN(Update)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
+    IGNORE_BASE();
     int id = Self_GetDeref("id", int);
     _go_exec_log[_go_exec_count++] = id;
 MESSAGE_HANDLER_END()
@@ -43,13 +42,13 @@ MESSAGE_HANDLER_END()
 CAN_RECEIVE_BEGIN()
     SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
     SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
-    SELF_CAN_RECEIVE_MID(Update)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Update)
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
     SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
     SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
-    SELF_RECEIVE_MESSAGE_ROUTE(Update)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Update)
 RECEIVE_MESSAGE_END()
 
 CLASSDEF_INHERITS(GameObject)
@@ -75,7 +74,8 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
     CALL_BASE();
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GOTestNode, Update)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
+    IGNORE_BASE();
     int id = Self_GetDeref("id", int);
     _go_exec_log[_go_exec_count++] = id;
     SPREAD_CONSUME(payload);
@@ -84,13 +84,13 @@ MESSAGE_HANDLER_END()
 CAN_RECEIVE_BEGIN()
     SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
     SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
-    SELF_CAN_RECEIVE_MID_EXTERN(GOTestNode, Update)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Update)
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
     SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
     SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
-    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GOTestNode, Update)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Update)
 RECEIVE_MESSAGE_END()
 
 CLASSDEF_INHERITS(GameObject)
@@ -238,7 +238,7 @@ static void test_go_spread_down(void) {
     _go_create_node(root, 2, 0);
     _go_create_node(root, 3, 0);
 
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
 
     ASSERT(_go_exec_count == 3);
     ASSERT(_go_exec_log[0] == 1);
@@ -260,7 +260,7 @@ static void test_go_spread_up(void) {
     _go_create_node(root, 2, 0);
     _go_create_node(root, 3, 0);
 
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_UP, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_UP, {}, {});
 
     ASSERT(_go_exec_count == 3);
     ASSERT(_go_exec_log[0] == 2);
@@ -291,7 +291,7 @@ static void test_go_consume_stops_subtree(void) {
     // Sibling of consumer (id=4)
     _go_create_node(root, 4, 0);
 
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
 
     // Root(1) visited, consumer(2) visited and consumes, leaf(3) skipped, sibling(4) visited
     ASSERT(_go_exec_count == 3);
@@ -319,7 +319,7 @@ static void test_go_inactive_skipped(void) {
         Payload_SetValue(msg, "active", int, 0);
     }, {});
 
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
 
     ASSERT(_go_exec_count == 2);
     ASSERT(_go_exec_log[0] == 1);
@@ -353,7 +353,7 @@ static void test_go_priority_ordering(void) {
     _Object_StoreValue(c3->data->values, "priority", 8, &(int){20}, sizeof(int), CID_GOTestNode, SER_RAW, 0);
     SELF_DISPATCH(root, MID_GameObject_SELF_AddChild, { Payload_SetValue(msg, "child", TempObjectReference, c3); }, {});
 
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
 
     ASSERT(_go_exec_count == 4);
     ASSERT(_go_exec_log[0] == 0);
@@ -377,7 +377,7 @@ static void test_go_reverse_flag(void) {
     _go_create_node(root, 2, 0);
     _go_create_node(root, 3, 0);
 
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_DOWN, {
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {
         Payload_SetValue(msg, "spread_reverse", int, 1);
     }, {});
 
@@ -402,7 +402,7 @@ static void test_go_deep_tree(void) {
     TempObjectReference mid = _go_create_node(root, 2, 0);
     _go_create_node(mid, 3, 0);
 
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
 
     ASSERT(_go_exec_count == 3);
     ASSERT(_go_exec_log[0] == 1);
@@ -424,7 +424,7 @@ static void test_go_shared_payload_mutation(void) {
     _go_create_node(root, 2, 0);
 
     int found_marker = 0;
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_DOWN, {
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {
         Payload_SetValue(msg, "test_marker", int, 42);
     }, {
         int *m = (int *)Payload_Get(msg, "test_marker");
@@ -465,7 +465,7 @@ static void test_go_set_priority_resorts(void) {
         Payload_SetValue(msg, "priority", int, 30);
     }, {});
 
-    GAMEOBJECT_DISPATCH(root, MID_GOTestNode_SELF_Update, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
 
     ASSERT(_go_exec_count == 3);
     ASSERT(_go_exec_log[0] == 0);
