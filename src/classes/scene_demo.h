@@ -1,0 +1,152 @@
+#pragma once
+
+#include "../system/object/Self.h"
+#include <raylib.h>
+
+// ============================================================
+// BouncingBox -- a rectangle that bounces horizontally
+// Stores: x, y, dx (velocity), w, h, color_r, color_g, color_b
+// ============================================================
+
+#define TYPE BouncingBox
+
+BEGIN_CLASS(0x2200);
+INHERITS(GameObject);
+
+DECLARE_SELF_MID(Update);
+DECLARE_SELF_MID(Render);
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
+    Self_SetTransient("x", float, 20.0f);
+    Self_SetTransient("y", float, 40.0f);
+    Self_SetTransient("dx", float, 30.0f);
+    Self_SetTransient("w", float, 12.0f);
+    Self_SetTransient("h", float, 12.0f);
+    Self_SetTransient("r", int, 230);
+    Self_SetTransient("g", int, 40);
+    Self_SetTransient("b", int, 40);
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN(Update)
+    float dt = 0.0f;
+    if (MH_Has(dt)) dt = MH_GetDeref(dt, float);
+
+    float x = Self_GetDeref("x", float);
+    float dx = Self_GetDeref("dx", float);
+    float w = Self_GetDeref("w", float);
+
+    x += dx * dt;
+    if (x + w > 160.0f || x < 0.0f) {
+        dx = -dx;
+        if (x + w > 160.0f) x = 160.0f - w;
+        if (x < 0.0f) x = 0.0f;
+    }
+    Self_SetTransient("x", float, x);
+    Self_SetTransient("dx", float, dx);
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN(Render)
+    float x = Self_GetDeref("x", float);
+    float y = Self_GetDeref("y", float);
+    float w = Self_GetDeref("w", float);
+    float h = Self_GetDeref("h", float);
+    int r = Self_GetDeref("r", int);
+    int g = Self_GetDeref("g", int);
+    int b = Self_GetDeref("b", int);
+    DrawRectangle((int)x, (int)y, (int)w, (int)h, (Color){r, g, b, 255});
+MESSAGE_HANDLER_END()
+
+CAN_RECEIVE_BEGIN()
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
+    SELF_CAN_RECEIVE_MID(Update)
+    SELF_CAN_RECEIVE_MID(Render)
+CAN_RECEIVE_END()
+
+RECEIVE_MESSAGE_BEGIN()
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE(Update)
+    SELF_RECEIVE_MESSAGE_ROUTE(Render)
+RECEIVE_MESSAGE_END()
+
+CLASSDEF_INHERITS(GameObject)
+
+#undef TYPE
+
+// ============================================================
+// SpinningCircle -- a circle that orbits a center point
+// ============================================================
+
+#define TYPE SpinningCircle
+
+BEGIN_CLASS(0x2201);
+INHERITS(GameObject);
+
+DECLARE_SELF_MID(Update);
+DECLARE_SELF_MID(Render);
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
+    Self_SetTransient("cx", float, 80.0f);
+    Self_SetTransient("cy", float, 60.0f);
+    Self_SetTransient("orbit", float, 25.0f);
+    Self_SetTransient("angle", float, 0.0f);
+    Self_SetTransient("speed", float, 2.0f);
+    Self_SetTransient("size", float, 6.0f);
+    Self_SetTransient("r", int, 40);
+    Self_SetTransient("g", int, 80);
+    Self_SetTransient("b", int, 230);
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN(Update)
+    float dt = 0.0f;
+    if (MH_Has(dt)) dt = MH_GetDeref(dt, float);
+
+    float angle = Self_GetDeref("angle", float);
+    float speed = Self_GetDeref("speed", float);
+    angle += speed * dt;
+    Self_SetTransient("angle", float, angle);
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN(Render)
+    float cx = Self_GetDeref("cx", float);
+    float cy = Self_GetDeref("cy", float);
+    float orbit = Self_GetDeref("orbit", float);
+    float angle = Self_GetDeref("angle", float);
+    float size = Self_GetDeref("size", float);
+    int r = Self_GetDeref("r", int);
+    int g = Self_GetDeref("g", int);
+    int b = Self_GetDeref("b", int);
+
+    float px = cx + orbit * cosf(angle);
+    float py = cy + orbit * sinf(angle);
+    DrawCircle((int)px, (int)py, size, (Color){r, g, b, 255});
+MESSAGE_HANDLER_END()
+
+CAN_RECEIVE_BEGIN()
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
+    SELF_CAN_RECEIVE_MID(Update)
+    SELF_CAN_RECEIVE_MID(Render)
+CAN_RECEIVE_END()
+
+RECEIVE_MESSAGE_BEGIN()
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE(Update)
+    SELF_RECEIVE_MESSAGE_ROUTE(Render)
+RECEIVE_MESSAGE_END()
+
+CLASSDEF_INHERITS(GameObject)
+
+#undef TYPE

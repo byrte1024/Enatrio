@@ -132,7 +132,7 @@ else
 fi
 
 # Run GCC and capture output (both stdout and stderr)
-COMPILE_OUTPUT=$($GCC $CFLAGS -Wall -Wextra $RAYLIB_CFLAGS $C_FILES -o "$OUTPUT_FILE" $RAYLIB_LIBS 2>&1)
+COMPILE_OUTPUT=$($GCC $CFLAGS -Wall -Wextra $RAYLIB_CFLAGS $C_FILES -o "$OUTPUT_FILE" $RAYLIB_LIBS -lm 2>&1)
 COMPILE_STATUS=$?
 
 # Display all compiler output (warnings and errors)
