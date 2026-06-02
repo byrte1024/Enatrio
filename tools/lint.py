@@ -518,7 +518,7 @@ def check_create_stored_as_external(filepath, source, source_bytes, tree, ignore
 
 def _parse_inherits_chain(filepath, source, ignore):
     """Parse INHERITS(X) and #define TYPE in a file.
-    Returns (class_name, parent_name) or (class_name, None) if no INHERITS."""
+    Returns (class_name, parent_name) or (class_name, None) for the LAST class in the file."""
     class_name = None
     parent_name = None
     pat_type = re.compile(r"^#define\s+TYPE\s+(\w+)")
@@ -533,6 +533,85 @@ def _parse_inherits_chain(filepath, source, ignore):
         if m:
             parent_name = m.group(1)
     return (class_name, parent_name)
+
+
+def _parse_all_classes(source, ignore):
+    """Parse all class definitions in a file. Returns list of
+    (class_name, parent_name_or_None, define_line, undef_line) tuples."""
+    classes = []
+    pat_type_def = re.compile(r"^#define\s+TYPE\s+(\w+)")
+    pat_type_undef = re.compile(r"^#undef\s+TYPE\s*$")
+    pat_inherits = re.compile(r"\bINHERITS\s*\(\s*(\w+)\s*\)")
+    current_type = None
+    current_parent = None
+    define_line = 0
+    for i, line in enumerate(source.split("\n"), 1):
+        if is_ignored(i, ignore):
+            continue
+        stripped = line.strip()
+        m = pat_type_def.match(stripped)
+        if m:
+            current_type = m.group(1)
+            current_parent = None
+            define_line = i
+        m = pat_inherits.search(stripped)
+        if m and current_type:
+            current_parent = m.group(1)
+        if pat_type_undef.match(stripped) and current_type:
+            classes.append((current_type, current_parent, define_line, i))
+            current_type = None
+            current_parent = None
+    return classes
+
+
+# Global inheritance map: class_name -> parent_name. Built by main() before linting.
+_global_inheritance_map = {}
+
+
+def _is_ancestor(child, ancestor, imap=None, local_classes=None):
+    """Walk the inheritance chain to check if ancestor is in child's ancestry.
+    Uses global map if available, falls back to local_classes from the file."""
+    if imap is None:
+        imap = _global_inheritance_map
+    # Build a combined map: global + local overrides
+    combined = dict(imap)
+    if local_classes:
+        for cname, cparent, _, _ in local_classes:
+            if cparent:
+                combined[cname] = cparent
+    walk = child
+    visited = set()
+    while walk in combined:
+        walk = combined[walk]
+        if walk == ancestor:
+            return True
+        if walk in visited:
+            break
+        visited.add(walk)
+    return False
+
+
+def _build_inheritance_map(files):
+    """Build global class->parent map from all source files."""
+    imap = {}
+    pat_type = re.compile(r"^#define\s+TYPE\s+(\w+)")
+    pat_inherits = re.compile(r"\bINHERITS\s*\(\s*(\w+)\s*\)")
+    for filepath in files:
+        with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+            source = f.read()
+        ignore = build_ignore_ranges(source)
+        current_type = None
+        for i, line in enumerate(source.split("\n"), 1):
+            if is_ignored(i, ignore):
+                continue
+            stripped = line.strip()
+            m = pat_type.match(stripped)
+            if m:
+                current_type = m.group(1)
+            m = pat_inherits.search(stripped)
+            if m and current_type:
+                imap[current_type] = m.group(1)
+    return imap
 
 
 def _find_extern_handler_bodies(source, ignore):
@@ -605,9 +684,9 @@ def _find_normal_handler_bodies(source, ignore):
 # ============================================================
 
 def check_extern_without_inherit(filepath, source, source_bytes, tree, ignore, errors):
-    """R090: Extern handler without inheritance."""
-    class_name, parent_name = _parse_inherits_chain(filepath, source, ignore)
-    if class_name is None:
+    """R090: Extern handler without inheritance (walks full ancestor chain)."""
+    classes = _parse_all_classes(source, ignore)
+    if not classes:
         return
     pat_extern = re.compile(
         r"\b(?:MESSAGE_HANDLER_BEGIN_EXTERN|SELF_MESSAGE_HANDLER_BEGIN_EXTERN)"
@@ -619,21 +698,35 @@ def check_extern_without_inherit(filepath, source, source_bytes, tree, ignore, e
             continue
         for m in pat_extern.finditer(line):
             extern_class = m.group(1)
-            if extern_class == class_name:
+            # Find which class scope this line belongs to
+            owner = None
+            for cname, cparent, cstart, cend in classes:
+                if cstart <= i <= cend:
+                    owner = cname
+                    break
+            if owner is None or extern_class == owner:
                 continue
-            if parent_name is None or extern_class != parent_name:
+            if not _is_ancestor(owner, extern_class, local_classes=classes):
                 errors.append(LintError(filepath, i, "R090",
-                    f"Extern handler for '{extern_class}' but class '{class_name}' "
+                    f"Extern handler for '{extern_class}' but class '{owner}' "
                     f"does not inherit from '{extern_class}'"))
 
 
 def check_missing_call_or_ignore_base(filepath, source, source_bytes, tree, ignore, errors):
     """R091: Missing CALL_BASE or IGNORE_BASE in inherited extern handler."""
-    class_name, parent_name = _parse_inherits_chain(filepath, source, ignore)
-    if class_name is None or parent_name is None:
+    classes = _parse_all_classes(source, ignore)
+    if not classes:
         return
     for extern_class, handler_name, start, end, body in _find_extern_handler_bodies(source, ignore):
-        if extern_class != parent_name:
+        # Find which class scope this handler belongs to
+        owner = None
+        for cname, cparent, cstart, cend in classes:
+            if cstart <= start <= cend:
+                owner = cname
+                break
+        if owner is None:
+            continue
+        if not _is_ancestor(owner, extern_class, local_classes=classes):
             continue
         if "CALL_BASE()" not in body and "IGNORE_BASE()" not in body:
             errors.append(LintError(filepath, start, "R091",
@@ -736,11 +829,15 @@ def check_inherits_after_handler(filepath, source, source_bytes, tree, ignore, e
         r"\b(?:MESSAGE_HANDLER_BEGIN|SELF_MESSAGE_HANDLER_BEGIN|"
         r"MESSAGE_HANDLER_BEGIN_EXTERN|SELF_MESSAGE_HANDLER_BEGIN_EXTERN|"
         r"CAN_RECEIVE_BEGIN)\s*\(")
+    pat_type_def = re.compile(r"^#define\s+TYPE\s+")
     has_handler = False
     for i, line in enumerate(source.split("\n"), 1):
         if is_ignored(i, ignore):
             continue
         stripped = line.strip()
+        if pat_type_def.match(stripped):
+            has_handler = False
+            continue
         if stripped.startswith("#define"):
             continue
         if pat_handler.search(stripped):
@@ -895,6 +992,9 @@ def main():
     files = find_source_files(src_dir)
     total_errors = 0
     error_files = 0
+
+    global _global_inheritance_map
+    _global_inheritance_map = _build_inheritance_map(files)
 
     for filepath in files:
         errors = lint_file(filepath)
