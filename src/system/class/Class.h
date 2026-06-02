@@ -386,12 +386,14 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 
 // ---- Setters ----
 
-// Stores raw bytes into the payload data.
+// Stores raw bytes into the payload data (create or update).
 //   MH_Set(result, &my_data, sizeof(my_data));
-#define MH_Set(paramname, value_ptr, value_size) \
-    UnsafeVariedHashMap_SSet(payload->data, STR(paramname), value_ptr, value_size)
+#define MH_Set(paramname, value_ptr, value_size) ({ \
+    UnsafeVariedHashMap_SRemove(payload->data, STR(paramname)); \
+    UnsafeVariedHashMap_SSet(payload->data, STR(paramname), value_ptr, value_size); \
+})
 
-// Stores a typed value into the payload data (takes the address for you).
+// Stores a typed value into the payload data (create or update).
 //   int result = a + b;
 //   MH_SetValue(result, int, result);
 #define MH_SetValue(paramname, type, var) \
