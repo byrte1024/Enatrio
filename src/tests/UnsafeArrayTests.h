@@ -3,6 +3,13 @@
 #include "../system/cts/UnsafeArray.h"
 #include "../system/tests.h"
 
+static int _verify_bytes_arr(uint8_t *buf, uint32_t offset, const uint8_t *expected, uint32_t len) {
+    for (uint32_t i = 0; i < len; i++) {
+        if (buf[offset + i] != expected[i]) return 0;
+    }
+    return 1;
+}
+
 static void test_array_create_destroy(void) {
     TEST("array: create and destroy");
     UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
@@ -227,6 +234,208 @@ static void test_array_grow_preserves_data(void) {
     PASS();
 }
 
+// --- Contract tests (should PASS) ---
+
+static void test_array_contract_add_beyond_capacity(void) {
+    TEST("array contract: add beyond capacity");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 4);
+    for (int i = 0; i < 10; i++) UnsafeArray_Add(arr, &i);
+    ASSERT(arr->count == 10);
+    for (int i = 0; i < 10; i++) {
+        ASSERT(UnsafeArray_GetDeref(arr, (uint32_t)i, int) == i);
+    }
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_contract_remove_shifts(void) {
+    TEST("array contract: remove shifts elements");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    int vals[] = {10, 20, 30};
+    for (int i = 0; i < 3; i++) UnsafeArray_Add(arr, &vals[i]);
+    UnsafeArray_Remove(arr, 1);
+    ASSERT(arr->count == 2);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 10);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 30);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_contract_removeswap(void) {
+    TEST("array contract: removeswap swaps last into slot");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    int vals[] = {10, 20, 30};
+    for (int i = 0; i < 3; i++) UnsafeArray_Add(arr, &vals[i]);
+    UnsafeArray_RemoveSwap(arr, 0);
+    ASSERT(arr->count == 2);
+    ASSERT(UnsafeArray_GetDeref(arr, 0, int) == 30);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 20);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_contract_set_no_count_change(void) {
+    TEST("array contract: set does not change count");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    int vals[] = {1, 2, 3};
+    for (int i = 0; i < 3; i++) UnsafeArray_Add(arr, &vals[i]);
+    ASSERT(arr->count == 3);
+    int newval = 99;
+    UnsafeArray_Set(arr, 1, &newval);
+    ASSERT(arr->count == 3);
+    ASSERT(UnsafeArray_GetDeref(arr, 1, int) == 99);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_contract_get_oob(void) {
+    TEST("array contract: get out of bounds returns NULL");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    int vals[] = {1, 2, 3};
+    for (int i = 0; i < 3; i++) UnsafeArray_Add(arr, &vals[i]);
+    ASSERT(UnsafeArray_Get(arr, 3) == NULL);
+    ASSERT(UnsafeArray_Get(arr, 100) == NULL);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_contract_clear(void) {
+    TEST("array contract: clear preserves capacity");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    for (int i = 0; i < 5; i++) UnsafeArray_Add(arr, &i);
+    uint32_t cap_before = arr->capacity;
+    UnsafeArray_Clear(arr);
+    ASSERT(arr->count == 0);
+    ASSERT(arr->capacity == cap_before);
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+// --- Contract tests (will FAIL -- stubs return -1) ---
+
+static void test_array_contract_addbulk(void) {
+    TEST("array contract: addbulk adds N elements");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    int data[5] = {1, 2, 3, 4, 5};
+    int rc = UnsafeArray_AddBulk(arr, data, 5);
+    ASSERT(rc == 0);
+    ASSERT(arr->count == 5);
+    for (int i = 0; i < 5; i++) {
+        ASSERT(UnsafeArray_GetDeref(arr, (uint32_t)i, int) == data[i]);
+    }
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_contract_addbulk_matches_individual(void) {
+    TEST("array contract: addbulk matches individual adds");
+    int data[5] = {10, 20, 30, 40, 50};
+    UnsafeArray *arr1 = UnsafeArray_Create(sizeof(int), 8);
+    UnsafeArray_AddBulk(arr1, data, 5);
+    UnsafeArray *arr2 = UnsafeArray_Create(sizeof(int), 8);
+    for (int i = 0; i < 5; i++) UnsafeArray_Add(arr2, &data[i]);
+    ASSERT(arr1->count == arr2->count);
+    ASSERT(memcmp(arr1->data, arr2->data, (size_t)arr1->count * arr1->element_size) == 0);
+    UnsafeArray_Destroy(arr1);
+    UnsafeArray_Destroy(arr2);
+    PASS();
+}
+
+// --- Metric tests (will FAIL -- stubs) ---
+
+static void test_array_metric_shrinktofit(void) {
+    TEST("array metric: shrinktofit reduces capacity to count");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 128);
+    for (int i = 0; i < 100; i++) UnsafeArray_Add(arr, &i);
+    for (int i = 0; i < 90; i++) UnsafeArray_RemoveSwap(arr, arr->count - 1);
+    ASSERT(arr->count == 10);
+    int rc = UnsafeArray_ShrinkToFit(arr);
+    ASSERT(rc == 0);
+    ASSERT(arr->capacity == arr->count);
+    for (int i = 0; i < (int)arr->count; i++) {
+        (void)UnsafeArray_Get(arr, (uint32_t)i);
+    }
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_metric_addbulk_same_growth(void) {
+    TEST("array metric: addbulk same count as individual adds");
+    int data[50];
+    for (int i = 0; i < 50; i++) data[i] = i * 3;
+    UnsafeArray *arr1 = UnsafeArray_Create(sizeof(int), 4);
+    UnsafeArray_AddBulk(arr1, data, 50);
+    UnsafeArray *arr2 = UnsafeArray_Create(sizeof(int), 4);
+    for (int i = 0; i < 50; i++) UnsafeArray_Add(arr2, &data[i]);
+    ASSERT(arr1->count == arr2->count);
+    UnsafeArray_Destroy(arr1);
+    UnsafeArray_Destroy(arr2);
+    PASS();
+}
+
+// --- Layout tests (should PASS) ---
+
+static void test_array_layout_add(void) {
+    TEST("array layout: add places bytes at correct offsets");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    int v;
+    uint8_t expected[4];
+
+    v = 10; UnsafeArray_Add(arr, &v);
+    v = 20; UnsafeArray_Add(arr, &v);
+    v = 30; UnsafeArray_Add(arr, &v);
+
+    v = 10; memcpy(expected, &v, 4);
+    ASSERT(_verify_bytes_arr(arr->data, 0, expected, 4));
+    v = 20; memcpy(expected, &v, 4);
+    ASSERT(_verify_bytes_arr(arr->data, 4, expected, 4));
+    v = 30; memcpy(expected, &v, 4);
+    ASSERT(_verify_bytes_arr(arr->data, 8, expected, 4));
+
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_layout_remove(void) {
+    TEST("array layout: remove shifts bytes correctly");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    int v;
+    uint8_t expected[4];
+
+    v = 10; UnsafeArray_Add(arr, &v);
+    v = 20; UnsafeArray_Add(arr, &v);
+    v = 30; UnsafeArray_Add(arr, &v);
+    UnsafeArray_Remove(arr, 1);
+
+    v = 10; memcpy(expected, &v, 4);
+    ASSERT(_verify_bytes_arr(arr->data, 0, expected, 4));
+    v = 30; memcpy(expected, &v, 4);
+    ASSERT(_verify_bytes_arr(arr->data, 4, expected, 4));
+
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
+static void test_array_layout_removeswap(void) {
+    TEST("array layout: removeswap places last at removed index");
+    UnsafeArray *arr = UnsafeArray_Create(sizeof(int), 8);
+    int v;
+    uint8_t expected[4];
+
+    v = 10; UnsafeArray_Add(arr, &v);
+    v = 20; UnsafeArray_Add(arr, &v);
+    v = 30; UnsafeArray_Add(arr, &v);
+    UnsafeArray_RemoveSwap(arr, 0);
+
+    v = 30; memcpy(expected, &v, 4);
+    ASSERT(_verify_bytes_arr(arr->data, 0, expected, 4));
+    v = 20; memcpy(expected, &v, 4);
+    ASSERT(_verify_bytes_arr(arr->data, 4, expected, 4));
+
+    UnsafeArray_Destroy(arr);
+    PASS();
+}
+
 static void run_unsafe_array_tests(void) {
     LOG_INFO("=== UnsafeArray Tests ===");
     test_array_create_destroy();
@@ -246,4 +455,21 @@ static void run_unsafe_array_tests(void) {
     test_array_create_zero_capacity();
     test_array_add_returns_int();
     test_array_grow_preserves_data();
+    // Contract tests (should PASS)
+    test_array_contract_add_beyond_capacity();
+    test_array_contract_remove_shifts();
+    test_array_contract_removeswap();
+    test_array_contract_set_no_count_change();
+    test_array_contract_get_oob();
+    test_array_contract_clear();
+    // Contract tests (will FAIL -- stubs)
+    test_array_contract_addbulk();
+    test_array_contract_addbulk_matches_individual();
+    // Metric tests (will FAIL -- stubs)
+    test_array_metric_shrinktofit();
+    test_array_metric_addbulk_same_growth();
+    // Layout tests (should PASS)
+    test_array_layout_add();
+    test_array_layout_remove();
+    test_array_layout_removeswap();
 }
