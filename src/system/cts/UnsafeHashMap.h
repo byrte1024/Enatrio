@@ -203,8 +203,14 @@ static int UnsafeHashMap_Remove(UnsafeHashMap *map, const void *key, uint32_t ke
 }
 
 static int UnsafeHashMap_Upsert(UnsafeHashMap *map, const void *key, uint32_t key_len, const void *value) {
-    (void)map; (void)key; (void)key_len; (void)value;
-    return -1;
+    uint32_t slot = _UnsafeHashMap_FindSlot(map, key, key_len);
+    if (slot == map->bucket_count) return -1;
+    UnsafeHashEntry *e = &map->buckets[slot];
+    if (e->value >= 0 && e->key_len == key_len && memcmp(e->key, key, key_len) == 0) {
+        memcpy(UnsafeArray_Get(map->values, (uint32_t)e->value), value, map->values->element_size);
+        return 0;
+    }
+    return UnsafeHashMap_Set(map, key, key_len, value);
 }
 
 typedef void (*UnsafeHashMapForEachFn)(const void *key, uint32_t key_len, void *value);

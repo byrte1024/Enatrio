@@ -132,8 +132,15 @@ static int UnsafeDictionary_Remove(UnsafeDictionary *dict, const void *key, uint
 }
 
 static int UnsafeDictionary_Upsert(UnsafeDictionary *dict, const void *key, uint32_t key_len, const void *value) {
-    (void)dict; (void)key; (void)key_len; (void)value;
-    return -1;
+    int32_t node_idx = UnsafeDictionary_Walk(dict, key, key_len, 0);
+    if (node_idx != UNSAFEDICT_EMPTY) {
+        UnsafeDictNode *node = (UnsafeDictNode *)UnsafeArray_Get(dict->nodes, (uint32_t)node_idx);
+        if (node->value != UNSAFEDICT_EMPTY) {
+            memcpy(UnsafeArray_Get(dict->values, (uint32_t)node->value), value, dict->values->element_size);
+            return 0;
+        }
+    }
+    return UnsafeDictionary_Set(dict, key, key_len, value);
 }
 
 #define UnsafeDictionary_GetDeref(dict, key, key_len, type) ({ \

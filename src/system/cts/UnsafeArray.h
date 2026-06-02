@@ -31,10 +31,9 @@ static void UnsafeArray_Destroy(UnsafeArray *arr) {
 
 // Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
 static void *UnsafeArray_Get(UnsafeArray *arr, uint32_t index) {
+    if (index >= arr->count) return NULL;
     return arr->data + (size_t)index * arr->element_size;
 }
-
-// Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
 static void UnsafeArray_Set(UnsafeArray *arr, uint32_t index, const void *value) {
     memcpy(arr->data + (size_t)index * arr->element_size, value, arr->element_size);
 }
@@ -88,13 +87,24 @@ static void UnsafeArray_Clear(UnsafeArray *arr) {
 }
 
 static int UnsafeArray_AddBulk(UnsafeArray *arr, const void *data, uint32_t count) {
-    (void)arr; (void)data; (void)count;
-    return -1;
+    if (count == 0) return 0;
+    while (arr->count + count > arr->capacity) {
+        if (_UnsafeArray_Grow(arr) != 0) return -1;
+    }
+    memcpy(arr->data + (size_t)arr->count * arr->element_size,
+           data, (size_t)count * arr->element_size);
+    arr->count += count;
+    return 0;
 }
 
 static int UnsafeArray_ShrinkToFit(UnsafeArray *arr) {
-    (void)arr;
-    return -1;
+    if (arr->count == 0) return 0;
+    if (arr->count == arr->capacity) return 0;
+    uint8_t *newbuf = (uint8_t *)realloc(arr->data, (size_t)arr->count * arr->element_size);
+    if (!newbuf) return -1;
+    arr->data = newbuf;
+    arr->capacity = arr->count;
+    return 0;
 }
 
 // Caller MUST ensure index < arr->count. No bounds check ("Unsafe" contract).
