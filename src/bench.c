@@ -522,15 +522,62 @@ static void _bench_param_dispatch(const char *label, ClassID cid, MessageID mid,
 }
 
 static void bench_param_scaling(void) {
-    _header("Dispatch Scaling: N payload parameters");
+    _header("Dispatch Scaling: N payload parameters (literal keys via S-macros)");
+    int NB = 200000;
+    double a, b;
 
-    _bench_param_dispatch("1 param: full dispatch",
+    // 1 param with literal key
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_BenchParam1, MID_BenchParam1_Sum1);
+          Payload_SetValue(&p, "v1", int, i);
+          DispatchMessage(&p);
+          FreePayload(&p);
+      } b=_now_ns();
+      _pb("1 param (literal key)", NB, b-a); }
+
+    // 5 params with literal keys
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_BenchParam5, MID_BenchParam5_Sum5);
+          Payload_SetValue(&p, "v1", int, i);
+          Payload_SetValue(&p, "v2", int, i);
+          Payload_SetValue(&p, "v3", int, i);
+          Payload_SetValue(&p, "v4", int, i);
+          Payload_SetValue(&p, "v5", int, i);
+          DispatchMessage(&p);
+          FreePayload(&p);
+      } b=_now_ns();
+      _pb("5 params (literal keys)", NB, b-a); }
+
+    // 10 params with literal keys
+    { a=_now_ns();
+      for(int i=0;i<100000;i++){
+          MessagePayload p = PreparePayload(CID_BenchParam10, MID_BenchParam10_Sum10);
+          Payload_SetValue(&p, "v1", int, i);
+          Payload_SetValue(&p, "v2", int, i);
+          Payload_SetValue(&p, "v3", int, i);
+          Payload_SetValue(&p, "v4", int, i);
+          Payload_SetValue(&p, "v5", int, i);
+          Payload_SetValue(&p, "v6", int, i);
+          Payload_SetValue(&p, "v7", int, i);
+          Payload_SetValue(&p, "v8", int, i);
+          Payload_SetValue(&p, "v9", int, i);
+          Payload_SetValue(&p, "v10", int, i);
+          DispatchMessage(&p);
+          FreePayload(&p);
+      } b=_now_ns();
+      _pb("10 params (literal keys)", 100000, b-a); }
+
+    _header("Dispatch Scaling: N params (dynamic keys via snprintf -- worst case)");
+
+    _bench_param_dispatch("1 param (dynamic key)",
         CID_BenchParam1, MID_BenchParam1_Sum1, 1, 200000);
 
-    _bench_param_dispatch("5 params: full dispatch",
+    _bench_param_dispatch("5 params (dynamic keys)",
         CID_BenchParam5, MID_BenchParam5_Sum5, 5, 100000);
 
-    _bench_param_dispatch("10 params: full dispatch",
+    _bench_param_dispatch("10 params (dynamic keys)",
         CID_BenchParam10, MID_BenchParam10_Sum10, 10, 50000);
 
     _bench_param_dispatch("100 params: full dispatch",

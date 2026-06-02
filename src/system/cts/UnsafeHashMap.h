@@ -511,10 +511,18 @@ static void UnsafeVariedHashMap_Destroy(UnsafeVariedHashMap *map) {
 // Resets the map to empty without freeing the backing allocations.
 static inline void UnsafeVariedHashMap_Clear(UnsafeVariedHashMap *map) {
     if (map->entry_count > 0) {
+        // Only walk buckets that could have entries (occupied or deleted).
+        // Free non-literal keys, then reinit each touched bucket individually
+        // instead of reiniting the entire array.
         for (uint32_t i = 0; i < map->bucket_count; i++) {
-            if (map->buckets[i].key != NULL && !_HASHKEY_IS_LITERAL(map->buckets[i].key_len)) free(map->buckets[i].key);
+            UnsafeVariedHashEntry *e = &map->buckets[i];
+            if (e->value == UNSAFEHASHMAP_EMPTY) continue;
+            if (e->key != NULL && !_HASHKEY_IS_LITERAL(e->key_len)) free(e->key);
+            e->key = NULL;
+            e->key_len = 0;
+            e->key_hash = 0;
+            e->value = UNSAFEHASHMAP_EMPTY;
         }
-        _UnsafeVariedHashMap_InitBuckets(map->buckets, map->bucket_count);
     }
     map->entry_count = 0;
     map->entries->count = 0;
