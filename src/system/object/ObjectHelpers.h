@@ -110,6 +110,22 @@ static inline ExternalReference Object_CreateRef(ClassID cid) {
                        value_ptr, value_size, \
                        BAT2(CID_, TYPE), SER_RAW, 0)
 
+// Stores a struct using a braced initializer. Serializable (SER_RAW).
+//   Self_SetStruct("rect", Rect, {20.0f, 40.0f, 12.0f, 12.0f});
+#define Self_SetStruct(str_key, type, ...) do { \
+    type _sss = __VA_ARGS__; \
+    _Object_StoreValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       &_sss, sizeof(type), BAT2(CID_, TYPE), SER_RAW, 0); \
+} while (0)
+
+// Stores a struct using a braced initializer. Transient (SER_SKIP).
+//   Self_SetStructTransient("rect", Rect, {20.0f, 40.0f, 12.0f, 12.0f});
+#define Self_SetStructTransient(str_key, type, ...) do { \
+    type _sst = __VA_ARGS__; \
+    _Object_StoreValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       &_sst, sizeof(type), BAT2(CID_, TYPE), SER_SKIP, 0); \
+} while (0)
+
 #define Self_SetTransient(str_key, type, value) \
     _Object_StoreValue(Self_Values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
                        &(type){value}, sizeof(type), \

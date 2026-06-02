@@ -28,9 +28,9 @@ INHERITS(GameObject);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
-    { Rect _r = {20.0f, 40.0f, 12.0f, 12.0f}; Self_Set("rect", &_r, sizeof(Rect)); }
+    Self_SetStructTransient("rect", Rect, {20.0f, 40.0f, 12.0f, 12.0f});
     Self_SetTransient("dx", float, 30.0f);
-    { Tint _t = {230, 40, 40, 255}; Self_Set("tint", &_t, sizeof(Tint)); }
+    Self_SetStructTransient("tint", Tint, {230, 40, 40, 255});
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
@@ -51,7 +51,7 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
         if (rect.x + rect.w > 160.0f) rect.x = 160.0f - rect.w;
         if (rect.x < 0.0f) rect.x = 0.0f;
     }
-    Self_Set("rect", &rect, sizeof(Rect));
+    Self_SetStructTransient("rect", Rect, rect);
     Self_SetTransient("dx", float, dx);
 MESSAGE_HANDLER_END()
 
@@ -100,8 +100,8 @@ INHERITS(GameObject);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
-    { OrbiterState _o = {80.0f, 60.0f, 25.0f, 0.0f, 2.0f, 6.0f}; Self_Set("orb", &_o, sizeof(OrbiterState)); }
-    { Tint _t = {40, 80, 230, 255}; Self_Set("tint", &_t, sizeof(Tint)); }
+    Self_SetStructTransient("orb", OrbiterState, {80.0f, 60.0f, 25.0f, 0.0f, 2.0f, 6.0f});
+    Self_SetStructTransient("tint", Tint, {40, 80, 230, 255});
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
@@ -115,7 +115,7 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
 
     OrbiterState orb = Self_GetDeref("orb", OrbiterState);
     orb.angle += orb.speed * dt;
-    Self_Set("orb", &orb, sizeof(OrbiterState));
+    Self_SetStructTransient("orb", OrbiterState, orb);
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)
@@ -157,7 +157,7 @@ INHERITS(GameObject);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
-    { Rect _r = {72.0f, 52.0f, 8.0f, 8.0f}; Self_Set("rect", &_r, sizeof(Rect)); }
+    Self_SetStructTransient("rect", Rect, {72.0f, 52.0f, 8.0f, 8.0f});
     Self_SetTransient("speed", float, 50.0f);
 MESSAGE_HANDLER_END()
 
@@ -183,7 +183,7 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
     if (rect.x + rect.w > 160.0f) rect.x = 160.0f - rect.w;
     if (rect.y + rect.h > 120.0f) rect.y = 120.0f - rect.h;
 
-    Self_Set("rect", &rect, sizeof(Rect));
+    Self_SetStructTransient("rect", Rect, rect);
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)

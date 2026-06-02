@@ -324,6 +324,13 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 #define Payload_SetValue(payload, str_key, type, value) \
     Payload_Set(payload, str_key, &(type){value}, sizeof(type))
 
+// Stores a struct value using a braced initializer (avoids compound literal issues).
+//   Payload_SetStruct(msg, "params", DrawParams, {.x=1, .y=2, .w=10, .h=10});
+#define Payload_SetStruct(payload, str_key, type, ...) do { \
+    type _pss = __VA_ARGS__; \
+    Payload_Set(payload, str_key, &_pss, sizeof(type)); \
+} while (0)
+
 // Returns a void* to the stored data, or NULL if not found.
 //   int *hp = (int*)Payload_Get(payload, "health");
 #define Payload_Get(payload, str_key) \
@@ -430,6 +437,13 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 //   MH_SetValue(result, int, result);
 #define MH_SetValue(paramname, type, var) \
     MH_Set(paramname, &(type){var}, sizeof(type))
+
+// Stores a struct value using a braced initializer.
+//   MH_SetStruct(result, DrawParams, {.x=px, .y=py, .w=w, .h=h});
+#define MH_SetStruct(paramname, type, ...) do { \
+    type _mss = __VA_ARGS__; \
+    MH_Set(paramname, &_mss, sizeof(type)); \
+} while (0)
 
 // ---- Checks ----
 
