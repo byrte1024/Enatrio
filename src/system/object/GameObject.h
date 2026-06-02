@@ -41,12 +41,13 @@ DECLARE_SELF_MID(Update);
 DECLARE_SELF_MID(Render);
 
 // ============================================================
-// Internal helpers (after MID declarations so they can reference them)
+// Internal helpers
 // ============================================================
 
 static inline ClassID _go_find_spread_handler(ClassID cid) {
     ClassID walk = cid;
     while (!CLASSID_ISUNTYPED(walk)) {
+        if (!CLASSID_ISREGISTERED(walk)) return CID_Untyped;
         if (ClassDefinitions[walk].CanReceiveMID(MID_GameObject_SELF_SpreadMessage))
             return walk;
         walk = ClassDefinitions[walk].parent_cid;
@@ -56,6 +57,11 @@ static inline ClassID _go_find_spread_handler(ClassID cid) {
 
 #define _GO_SPREAD_STACK_MAX 64
 
+// Snapshot-based child iteration. Acquires a temporary external ref on
+// each snapshotted child so they cannot be freed during the spread.
+// direction and reverse are passed as C params to avoid re-reading them
+// from the payload on every recursive call.
+#define LINTNORE
 static void _go_spread_to_children(
     TempObjectReference self_node,
     MessagePayload *outer_payload,
@@ -63,7 +69,6 @@ static void _go_spread_to_children(
 {
     if (child_count <= 0) return;
 
-    // Snapshot child pointers so mutations during spread are safe
     TempObjectReference stack_buf[_GO_SPREAD_STACK_MAX];
     TempObjectReference *snapshot = stack_buf;
     if (child_count > _GO_SPREAD_STACK_MAX) {
@@ -71,7 +76,7 @@ static void _go_spread_to_children(
         if (!snapshot) return;
     }
 
-    // Build snapshot in iteration order
+    // Build snapshot + acquire refs to keep children alive
     int snap_count = 0;
     int start = reverse ? child_count - 1 : 0;
     int end   = reverse ? -1 : child_count;
@@ -80,28 +85,41 @@ static void _go_spread_to_children(
         char kbuf[_GO_CHILD_KEY_MAX];
         uint32_t klen = _go_child_key(kbuf, i);
         TempObjectReference ch = Object_GetRef(self_node, kbuf, klen);
-        if (ch != NULL) snapshot[snap_count++] = ch;
+        if (ch != NULL) {
+            ch->external_refs++;
+            snapshot[snap_count++] = ch;
+        }
     }
 
-    // Iterate snapshot
     for (int i = 0; i < snap_count; i++) {
         TempObjectReference ch = snapshot[i];
-        // Child may have been freed by a previous handler in this spread
-        if (ch->data == NULL) continue;
+
+        // Skip if destroyed (data freed by an earlier handler in this spread)
+        if (ch->data == NULL) goto release;
 
         void *ap = _Object_GetValueData(ch->data->values, "active", 6);
-        if (ap && *(int *)ap == 0) continue;
+        if (ap && *(int *)ap == 0) goto release;
 
         ClassID handler_cid = _go_find_spread_handler(ch->cid);
-        if (CLASSID_ISUNTYPED(handler_cid)) continue;
+        if (CLASSID_ISUNTYPED(handler_cid)) goto release;
 
         Payload_SetValue(outer_payload, "Self", TempObjectReference, ch);
         outer_payload->cid_target = ch->cid;
         ClassDefinitions[handler_cid].ReceiveMessage(outer_payload);
+
+    release:
+        ch->external_refs--;
+        if (ObjectContainer_TotalRefs(ch) <= 0) {
+            if (ch->data != NULL) ObjectContainer_EmptyFilledTyped(ch);
+            if (ch->cid != CID_Untyped) ObjectContainer_UntypeEmptyTyped(ch);
+            _ObjectRegistry_Unregister(ch);
+            free(ch);
+        }
     }
 
     if (snapshot != stack_buf) free(snapshot);
 }
+#undef LINTNORE
 
 // ============================================================
 // SELF_Create (extern Object)
@@ -215,27 +233,14 @@ SELF_MESSAGE_HANDLER_BEGIN(RemoveChild)
         return;
     }
 
-    // Clear parent ref on child
-    if (child->data != NULL && child->data->references != NULL) {
-        if (UnsafeHashMap_Has(child->data->references, "parent", 6)) {
-            ObjectReference *old = (ObjectReference *)UnsafeHashMap_Get(child->data->references, "parent", 6);
-            ObjectContainer_UnRef_Internal(old);
-            UnsafeHashMap_Remove(child->data->references, "parent", 6);
-        }
-    }
+    Object_SRemoveRef(child, "parent");
 
-    // Remove the child ref at found_idx
     {
         char kbuf[_GO_CHILD_KEY_MAX];
         uint32_t klen = _go_child_key(kbuf, found_idx);
-        if (UnsafeHashMap_Has(Self_Refs, kbuf, klen)) {
-            ObjectReference *old = (ObjectReference *)UnsafeHashMap_Get(Self_Refs, kbuf, klen);
-            ObjectContainer_UnRef_Internal(old);
-            UnsafeHashMap_Remove(Self_Refs, kbuf, klen);
-        }
+        Object_RemoveRef(Self, kbuf, klen);
     }
 
-    // Shift remaining children down
     for (int i = found_idx; i < count - 1; i++) {
         char src_buf[_GO_CHILD_KEY_MAX];
         uint32_t src_len = _go_child_key(src_buf, i + 1);
@@ -246,15 +251,10 @@ SELF_MESSAGE_HANDLER_BEGIN(RemoveChild)
         Object_StoreRef(Self, dst_buf, dst_len, moved);
     }
 
-    // Remove the now-duplicate last slot
     {
         char kbuf[_GO_CHILD_KEY_MAX];
         uint32_t klen = _go_child_key(kbuf, count - 1);
-        if (UnsafeHashMap_Has(Self_Refs, kbuf, klen)) {
-            ObjectReference *old = (ObjectReference *)UnsafeHashMap_Get(Self_Refs, kbuf, klen);
-            ObjectContainer_UnRef_Internal(old);
-            UnsafeHashMap_Remove(Self_Refs, kbuf, klen);
-        }
+        Object_RemoveRef(Self, kbuf, klen);
     }
 
     Self_SetValue("child_count", int, count - 1);
@@ -264,34 +264,36 @@ MESSAGE_HANDLER_END()
 // SELF_SetPriority
 // ============================================================
 
+#define LINTNORE
 SELF_MESSAGE_HANDLER_BEGIN(SetPriority)
     MH_ExtractDeref(priority, int);
     Self_SetValue("priority", int, priority);
 
     TempObjectReference parent = Self_GetRef("parent");
     if (parent != NULL) {
-        // Hold a temporary external ref so Self survives the remove+re-add cycle.
-        // RemoveChild drops the parent's internal ref, which would free Self
-        // if no other refs exist.
         ExternalReference _guard = ObjectContainer_ExternalRef_From_Temp(Self);
         SELF_DISPATCH(parent, MID_GameObject_SELF_RemoveChild, {
             Payload_SetValue(msg, "child", TempObjectReference, Self);
         }, {});
-        SELF_DISPATCH(parent, MID_GameObject_SELF_AddChild, {
+        uint8_t add_result = SELF_DISPATCH(parent, MID_GameObject_SELF_AddChild, {
             Payload_SetValue(msg, "child", TempObjectReference, Self);
         }, {});
+        if (!MESSAGE_RESULT_ISOK(add_result)) {
+            LOG_ERROR("SetPriority: AddChild failed (%s), object orphaned",
+                MESSAGE_RESULT_NAME(add_result));
+        }
         ObjectContainer_UnRef_External(&_guard);
     }
 MESSAGE_HANDLER_END()
+#undef LINTNORE
 
 // ============================================================
 // SELF_SpreadMessage
 //
-// NOTE: Child iteration uses a snapshot of the child list taken before
-// iteration begins. Adding or removing children during a spread is safe
-// (no crash or stale index), but newly added children will NOT receive
-// the current message, and removed children may still be visited if they
-// were in the snapshot (they are skipped if their data is NULL).
+// NOTE: Child iteration uses a snapshot with held refs. Adding or
+// removing children during a spread is safe. Newly added children
+// will NOT receive the current message. Removed children are skipped
+// if their data was freed.
 // ============================================================
 
 SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
@@ -313,7 +315,6 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
     TempObjectReference orig_inner_self = Payload_GetDeref(inner, "Self", TempObjectReference);
 
     if (spread_direction == SPREAD_DOWN) {
-        // Top-down: self first, then children
         Payload_SetValue(inner, "Self", TempObjectReference, Self);
         inner->cid_target = Self->cid;
         DispatchMessage(inner);
@@ -329,16 +330,14 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
             _go_spread_to_children(Self, payload, child_count, spread_reverse);
         }
     } else {
-        // Bottom-up: children first, then self
-        // Note: SPREAD_CONSUME has no effect in SPREAD_UP mode because
-        // children are visited before self -- there is nothing left to skip.
+        // SPREAD_UP: children first, then self.
+        // SPREAD_CONSUME has no effect in this mode.
         _go_spread_to_children(Self, payload, child_count, spread_reverse);
 
         Payload_SetValue(inner, "Self", TempObjectReference, Self);
         inner->cid_target = Self->cid;
         DispatchMessage(inner);
 
-        // Reset consumed if set (prevent leaking to parent's sibling loop)
         {
             void *cp = Payload_Get(inner, _GO_CONSUMED_KEY);
             if (cp && *(int *)cp != 0) {
@@ -347,7 +346,6 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
         }
     }
 
-    // Restore inner Self for the caller
     Payload_SetValue(inner, "Self", TempObjectReference, orig_inner_self);
 MESSAGE_HANDLER_END()
 
