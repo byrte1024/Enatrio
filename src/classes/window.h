@@ -15,6 +15,7 @@
 #define TYPE Window
 
 BEGIN_CLASS(0x22FF);
+INHERITS(Object);
 
 DECLARE_SELF_MID(Open);
 DECLARE_SELF_MID(Close);
@@ -28,7 +29,8 @@ DECLARE_SELF_MID(SetAspectMode);
 DECLARE_SELF_MID(SetVirtualSize);
 DECLARE_SELF_MID(GetInfo);
 
-SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Create)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
     RenderTexture2D empty_vtex = {0};
     _Object_StoreValue(Self_Values, "vtex", 4,
                        &empty_vtex, sizeof(RenderTexture2D),
@@ -42,7 +44,8 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Create)
     Self_SetTransient("has_virtual", int, 0);
 MESSAGE_HANDLER_END()
 
-SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Default, Destroy)
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
     int has_virtual = Self_GetDeref("has_virtual", int);
     if (has_virtual) {
         RenderTexture2D *vtex = Self_Get("vtex", RenderTexture2D);
@@ -196,8 +199,8 @@ SELF_MESSAGE_HANDLER_BEGIN(GetInfo)
 MESSAGE_HANDLER_END()
 
 CAN_RECEIVE_BEGIN()
-    SELF_CAN_RECEIVE_MID_EXTERN(Default, Create)
-    SELF_CAN_RECEIVE_MID_EXTERN(Default, Destroy)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
     SELF_CAN_RECEIVE_MID(Open)
     SELF_CAN_RECEIVE_MID(Close)
     SELF_CAN_RECEIVE_MID(SetTitle)
@@ -212,8 +215,8 @@ CAN_RECEIVE_BEGIN()
 CAN_RECEIVE_END()
 
 RECEIVE_MESSAGE_BEGIN()
-    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Default, Create)
-    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Default, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
     SELF_RECEIVE_MESSAGE_ROUTE(Open)
     SELF_RECEIVE_MESSAGE_ROUTE(Close)
     SELF_RECEIVE_MESSAGE_ROUTE(SetTitle)
@@ -227,7 +230,7 @@ RECEIVE_MESSAGE_BEGIN()
     SELF_RECEIVE_MESSAGE_ROUTE(GetInfo)
 RECEIVE_MESSAGE_END()
 
-CLASSDEF()
+CLASSDEF_INHERITS(Object)
 
 #undef TYPE
 

@@ -17,6 +17,7 @@ int main() {
   LOG_BUILD_INFO();
 
   BeginClassRegistrations();
+  RegisterClass(Object_ClassDef());
   RegisterClass(Exploder_ClassDef());
   RegisterClass(Window_ClassDef());
   EndClassRegistrations();
