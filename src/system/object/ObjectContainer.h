@@ -41,7 +41,7 @@ static inline MessagePayload PrepareSelfPayload(TempObjectReference reference, M
     payload.mid = mid;
     payload.result = MESSAGE_RESULT_NOTSENT;
 
-    payload.data = UnsafeVariedHashMap_Create(8);
+    payload.data = _PayloadPool_Acquire();
     if (payload.data == NULL) {
         LOG_ERROR("Failed to allocate payload data map.");
         return payload;
