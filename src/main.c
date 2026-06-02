@@ -56,18 +56,14 @@ int main() {
   (void)player;
 
   TempObjectReference c2 = GameObject_CreateChild(root, CID_SpinningCircle);
-  _Object_StoreValue(c2->data->values, "orbit", 5,
-                     &(float){15.0f}, sizeof(float), CID_SpinningCircle, SER_SKIP, 0);
-  _Object_StoreValue(c2->data->values, "speed", 5,
-                     &(float){-3.5f}, sizeof(float), CID_SpinningCircle, SER_SKIP, 0);
-  _Object_StoreValue(c2->data->values, "size", 4,
-                     &(float){4.0f}, sizeof(float), CID_SpinningCircle, SER_SKIP, 0);
-  _Object_StoreValue(c2->data->values, "r", 1,
-                     &(int){40}, sizeof(int), CID_SpinningCircle, SER_SKIP, 0);
-  _Object_StoreValue(c2->data->values, "g", 1,
-                     &(int){200}, sizeof(int), CID_SpinningCircle, SER_SKIP, 0);
-  _Object_StoreValue(c2->data->values, "b", 1,
-                     &(int){80}, sizeof(int), CID_SpinningCircle, SER_SKIP, 0);
+  {
+      OrbiterState orb = {80.0f, 60.0f, 15.0f, 0.0f, -3.5f, 4.0f};
+      Tint tint = {40, 200, 80, 255};
+      _Object_StoreValue(c2->data->values, "orb", 3,
+                         &orb, sizeof(OrbiterState), CID_SpinningCircle, SER_SKIP, 0);
+      _Object_StoreValue(c2->data->values, "tint", 4,
+                         &tint, sizeof(Tint), CID_SpinningCircle, SER_SKIP, 0);
+  }
 
   while (!WindowShouldClose()) {
     float dt = GetFrameTime();
