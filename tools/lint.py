@@ -189,9 +189,9 @@ def check_type_define_undef(filepath, source, source_bytes, tree, ignore, errors
 
 
 def check_begin_class_classdef(filepath, source, source_bytes, tree, ignore, errors):
-    """R021: BEGIN_CLASS must have CLASSDEF() in same file."""
+    """R021: BEGIN_CLASS must have CLASSDEF() or CLASSDEF_INHERITS() in same file."""
     begin_lines = find_text_occurrences(source, r"\bBEGIN_CLASS\s*\(")
-    classdef_lines = find_text_occurrences(source, r"\bCLASSDEF\s*\(")
+    classdef_lines = find_text_occurrences(source, r"\bCLASSDEF(?:_INHERITS)?\s*\(")
 
     begin_lines = [l for l in begin_lines if not is_ignored(l, ignore)]
     classdef_lines = [l for l in classdef_lines if not is_ignored(l, ignore)]

@@ -93,17 +93,4 @@ typedef struct {
 #define SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(classname, msgname) \
     RECEIVE_MESSAGE_ROUTE_EXTERN(classname, BAT2(SELF_, msgname))
 
-// ============================================================
-// Object base class -- CID, classname, and SELF MIDs
-// ============================================================
-
-#define TYPE Object
-BEGIN_CLASS(0x0001);
-
-DECLARE_SELF_MID(Create);
-DECLARE_SELF_MID(Destroy);
-DECLARE_SELF_MID(Serialize);
-DECLARE_SELF_MID(Deserialize);
-
-#undef TYPE
 

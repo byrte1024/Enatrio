@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ObjectTypes.h"
+#include "Object.h"
 
 // ============================================================
 // Global object registry

@@ -1,8 +1,15 @@
 #pragma once
 
-#include "ObjectContainer.h"
+#include "ObjectTypes.h"
 
 #define TYPE Object
+
+BEGIN_CLASS(0x0001);
+
+DECLARE_SELF_MID(Create);
+DECLARE_SELF_MID(Destroy);
+DECLARE_SELF_MID(Serialize);
+DECLARE_SELF_MID(Deserialize);
 
 SELF_MESSAGE_HANDLER_BEGIN(Create)
     (void)Self;
