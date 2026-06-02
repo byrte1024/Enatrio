@@ -20,8 +20,9 @@
 
 typedef struct UnsafeHashEntry {
     void *key;
-    uint32_t key_len;  // low 31 bits = length, bit 31 = literal flag
-    int32_t value;     // index into values array, or UNSAFEHASHMAP_EMPTY / DELETED
+    uint32_t key_len;   // low 31 bits = length, bit 31 = literal flag
+    uint32_t key_hash;  // cached FNV-1a hash -- never recomputed on lookup
+    int32_t value;      // index into values array, or UNSAFEHASHMAP_EMPTY / DELETED
 } UnsafeHashEntry;
 
 typedef struct UnsafeHashMap {
@@ -48,6 +49,7 @@ static void _UnsafeHashMap_InitBuckets(UnsafeHashEntry *buckets, uint32_t count)
     for (uint32_t i = 0; i < count; i++) {
         buckets[i].key = NULL;
         buckets[i].key_len = 0;
+        buckets[i].key_hash = 0;
         buckets[i].value = UNSAFEHASHMAP_EMPTY;
     }
 }
@@ -79,19 +81,18 @@ static void UnsafeHashMap_Destroy(UnsafeHashMap *map) {
     free(map);
 }
 
-// Linear probe search. Returns the first usable slot (matching key, first
-// tombstone, or first empty). Load factor control guarantees termination.
-static inline uint32_t _UnsafeHashMap_FindSlot(UnsafeHashMap *map, const void *key, uint32_t key_len) {
-    uint32_t hash = _UnsafeHashMap_Hash(key, key_len);
+// Linear probe search with pre-computed hash. Compares cached hash (1 cycle)
+// before falling back to memcmp. For S-macros, GCC constant-folds the hash
+// at -O2 so the caller passes a compile-time constant.
+static inline uint32_t _UnsafeHashMap_FindSlotH(UnsafeHashMap *map, const void *key, uint32_t key_len, uint32_t hash) {
     uint32_t idx = hash & (map->bucket_count - 1);
-    uint32_t first_deleted = map->bucket_count; // sentinel
+    uint32_t first_deleted = map->bucket_count;
 
     for (uint32_t i = 0; i < map->bucket_count; i++) {
         uint32_t probe = (idx + i) & (map->bucket_count - 1);
         UnsafeHashEntry *e = &map->buckets[probe];
 
         if (e->value == UNSAFEHASHMAP_EMPTY) {
-            // Empty slot -- key not in table
             return (first_deleted < map->bucket_count) ? first_deleted : probe;
         }
 
@@ -100,13 +101,20 @@ static inline uint32_t _UnsafeHashMap_FindSlot(UnsafeHashMap *map, const void *k
             continue;
         }
 
-        // Occupied -- check key match (mask out literal bit for length comparison)
-        if (_HASHKEY_LEN(e->key_len) == key_len && memcmp(e->key, key, key_len) == 0) {
+        // Fast path: compare cached hash + length before expensive memcmp
+        if (e->key_hash == hash && _HASHKEY_LEN(e->key_len) == key_len &&
+            memcmp(e->key, key, key_len) == 0) {
             return probe;
         }
     }
 
     return (first_deleted < map->bucket_count) ? first_deleted : map->bucket_count;
+}
+
+// Convenience wrapper that computes the hash. For hot paths, prefer FindSlotH
+// with a pre-computed hash to let the compiler fold it for string literals.
+static inline uint32_t _UnsafeHashMap_FindSlot(UnsafeHashMap *map, const void *key, uint32_t key_len) {
+    return _UnsafeHashMap_FindSlotH(map, key, key_len, _UnsafeHashMap_Hash(key, key_len));
 }
 
 static void _UnsafeHashMap_Rehash(UnsafeHashMap *map) {
@@ -129,7 +137,7 @@ static void _UnsafeHashMap_Rehash(UnsafeHashMap *map) {
             continue;
         }
         // Re-insert into new table (mask out literal bit for hash/compare)
-        uint32_t slot = _UnsafeHashMap_FindSlot(map, old->key, _HASHKEY_LEN(old->key_len));
+        uint32_t slot = _UnsafeHashMap_FindSlotH(map, old->key, _HASHKEY_LEN(old->key_len), old->key_hash);
         map->buckets[slot] = *old; // transfer ownership of key allocation (preserves literal bit)
     }
 
@@ -160,6 +168,7 @@ static int UnsafeHashMap_Set(UnsafeHashMap *map, const void *key, uint32_t key_l
     if (!e->key) return -1;
     memcpy(e->key, key, key_len);
     e->key_len = key_len;
+    e->key_hash = _UnsafeHashMap_Hash(key, key_len);
 
     if (map->free_list->count > 0) {
         int32_t reuse = UnsafeArray_GetDerefFast(map->free_list, map->free_list->count - 1, int32_t);
@@ -194,6 +203,7 @@ static int UnsafeHashMap_SetLiteral(UnsafeHashMap *map, const void *key, uint32_
 
     e->key = (void *)key;
     e->key_len = key_len | _HASHKEY_LITERAL_BIT;
+    e->key_hash = _UnsafeHashMap_Hash(key, key_len);
 
     if (map->free_list->count > 0) {
         int32_t reuse = UnsafeArray_GetDerefFast(map->free_list, map->free_list->count - 1, int32_t);
@@ -251,7 +261,8 @@ static int UnsafeHashMap_Upsert(UnsafeHashMap *map, const void *key, uint32_t ke
         _UnsafeHashMap_Rehash(map);
     }
 
-    uint32_t slot = _UnsafeHashMap_FindSlot(map, key, key_len);
+    uint32_t hash = _UnsafeHashMap_Hash(key, key_len);
+    uint32_t slot = _UnsafeHashMap_FindSlotH(map, key, key_len, hash);
     if (slot == map->bucket_count) return -1;
     UnsafeHashEntry *e = &map->buckets[slot];
 
@@ -266,6 +277,7 @@ static int UnsafeHashMap_Upsert(UnsafeHashMap *map, const void *key, uint32_t ke
     if (!e->key) return -1;
     memcpy(e->key, key, key_len);
     e->key_len = key_len;
+    e->key_hash = hash;
 
     if (map->free_list->count > 0) {
         int32_t reuse = UnsafeArray_GetDerefFast(map->free_list, map->free_list->count - 1, int32_t);
@@ -290,7 +302,8 @@ static int UnsafeHashMap_UpsertLiteral(UnsafeHashMap *map, const void *key, uint
         _UnsafeHashMap_Rehash(map);
     }
 
-    uint32_t slot = _UnsafeHashMap_FindSlot(map, key, key_len);
+    uint32_t hash = _UnsafeHashMap_Hash(key, key_len);
+    uint32_t slot = _UnsafeHashMap_FindSlotH(map, key, key_len, hash);
     if (slot == map->bucket_count) return -1;
     UnsafeHashEntry *e = &map->buckets[slot];
 
@@ -303,6 +316,7 @@ static int UnsafeHashMap_UpsertLiteral(UnsafeHashMap *map, const void *key, uint
     // New key -- insert as literal
     e->key = (void *)key;
     e->key_len = key_len | _HASHKEY_LITERAL_BIT;
+    e->key_hash = hash;
 
     if (map->free_list->count > 0) {
         int32_t reuse = UnsafeArray_GetDerefFast(map->free_list, map->free_list->count - 1, int32_t);
@@ -435,6 +449,7 @@ static void _uhm_lf_fn(const void *v, char *b, uint32_t s) {
 typedef struct UnsafeVariedHashEntry {
     void *key;
     uint32_t key_len;
+    uint32_t key_hash;  // cached FNV-1a hash -- never recomputed on lookup
     int32_t value;  // index into entries array, or UNSAFEHASHMAP_EMPTY / DELETED
 } UnsafeVariedHashEntry;
 
@@ -457,6 +472,7 @@ static void _UnsafeVariedHashMap_InitBuckets(UnsafeVariedHashEntry *buckets, uin
     for (uint32_t i = 0; i < count; i++) {
         buckets[i].key = NULL;
         buckets[i].key_len = 0;
+        buckets[i].key_hash = 0;
         buckets[i].value = UNSAFEHASHMAP_EMPTY;
     }
 }
@@ -507,8 +523,7 @@ static inline void UnsafeVariedHashMap_Clear(UnsafeVariedHashMap *map) {
     map->data_free_list->count = 0;
 }
 
-static inline uint32_t _UnsafeVariedHashMap_FindSlot(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
-    uint32_t hash = _UnsafeHashMap_Hash(key, key_len);
+static inline uint32_t _UnsafeVariedHashMap_FindSlotH(UnsafeVariedHashMap *map, const void *key, uint32_t key_len, uint32_t hash) {
     uint32_t idx = hash & (map->bucket_count - 1);
     uint32_t first_deleted = map->bucket_count;
 
@@ -525,12 +540,18 @@ static inline uint32_t _UnsafeVariedHashMap_FindSlot(UnsafeVariedHashMap *map, c
             continue;
         }
 
-        if (_HASHKEY_LEN(e->key_len) == key_len && memcmp(e->key, key, key_len) == 0) {
+        // Fast path: compare cached hash + length before expensive memcmp
+        if (e->key_hash == hash && _HASHKEY_LEN(e->key_len) == key_len &&
+            memcmp(e->key, key, key_len) == 0) {
             return probe;
         }
     }
 
     return (first_deleted < map->bucket_count) ? first_deleted : map->bucket_count;
+}
+
+static inline uint32_t _UnsafeVariedHashMap_FindSlot(UnsafeVariedHashMap *map, const void *key, uint32_t key_len) {
+    return _UnsafeVariedHashMap_FindSlotH(map, key, key_len, _UnsafeHashMap_Hash(key, key_len));
 }
 
 static void _UnsafeVariedHashMap_Rehash(UnsafeVariedHashMap *map) {
@@ -551,7 +572,7 @@ static void _UnsafeVariedHashMap_Rehash(UnsafeVariedHashMap *map) {
             if (old->key != NULL && !_HASHKEY_IS_LITERAL(old->key_len)) free(old->key);
             continue;
         }
-        uint32_t slot = _UnsafeVariedHashMap_FindSlot(map, old->key, _HASHKEY_LEN(old->key_len));
+        uint32_t slot = _UnsafeVariedHashMap_FindSlotH(map, old->key, _HASHKEY_LEN(old->key_len), old->key_hash);
         map->buckets[slot] = *old;
     }
 
@@ -579,6 +600,7 @@ static int UnsafeVariedHashMap_Set(UnsafeVariedHashMap *map, const void *key, ui
     if (!e->key) return -1;
     memcpy(e->key, key, key_len);
     e->key_len = key_len;
+    e->key_hash = _UnsafeHashMap_Hash(key, key_len);
 
     UnsafeVariedHashEntryInfo info;
     info.offset = _UnsafeVaried_WriteData(map->data, map->data_free_list, value, value_size);
@@ -618,6 +640,7 @@ static int UnsafeVariedHashMap_SetLiteral(UnsafeVariedHashMap *map, const void *
 
     e->key = (void *)key;
     e->key_len = key_len | _HASHKEY_LITERAL_BIT;
+    e->key_hash = _UnsafeHashMap_Hash(key, key_len);
 
     UnsafeVariedHashEntryInfo info;
     info.offset = _UnsafeVaried_WriteData(map->data, map->data_free_list, value, value_size);
