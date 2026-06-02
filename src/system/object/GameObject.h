@@ -9,7 +9,7 @@
 #define SPREAD_DOWN 0
 #define SPREAD_UP   1
 #define _GO_CONSUMED_KEY "__go_consumed__"
-#define SPREAD_CONSUME(payload) Payload_OverwriteValue(payload, _GO_CONSUMED_KEY, int, 1)
+#define SPREAD_CONSUME(payload) Payload_SetValue(payload, _GO_CONSUMED_KEY, int, 1)
 #define _GO_CHILD_KEY_MAX 24
 
 static inline uint32_t _go_child_key(char *buf, int index) {
@@ -229,7 +229,7 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
         // Top-down: dispatch to self first, then children
         // Swap Self on inner payload to this node
         TempObjectReference orig_inner_self = Payload_GetDeref(inner, "Self", TempObjectReference);
-        Payload_OverwriteValue(inner, "Self", TempObjectReference, Self);
+        Payload_SetValue(inner, "Self", TempObjectReference, Self);
         inner->cid_target = Self->cid;
         DispatchMessage(inner);
 
@@ -241,8 +241,8 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
         }
         if (consumed) {
             // Reset consumed so it does not leak to siblings
-            Payload_OverwriteValue(inner, "Self", TempObjectReference, orig_inner_self);
-            Payload_OverwriteValue(inner, _GO_CONSUMED_KEY, int, 0);
+            Payload_SetValue(inner, "Self", TempObjectReference, orig_inner_self);
+            Payload_SetValue(inner, _GO_CONSUMED_KEY, int, 0);
         } else {
             // Iterate children
             if (!spread_reverse) {
@@ -265,7 +265,7 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
                     if (CLASSID_ISUNTYPED(handler_cid)) continue;
 
                     // Swap Self on OUTER payload to child
-                    Payload_OverwriteValue(payload, "Self", TempObjectReference, ch);
+                    Payload_SetValue(payload, "Self", TempObjectReference, ch);
                     payload->cid_target = ch->cid;
                     ClassDefinitions[handler_cid].ReceiveMessage(payload);
                 }
@@ -286,13 +286,13 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
                     }
                     if (CLASSID_ISUNTYPED(handler_cid)) continue;
 
-                    Payload_OverwriteValue(payload, "Self", TempObjectReference, ch);
+                    Payload_SetValue(payload, "Self", TempObjectReference, ch);
                     payload->cid_target = ch->cid;
                     ClassDefinitions[handler_cid].ReceiveMessage(payload);
                 }
             }
             // Restore inner Self
-            Payload_OverwriteValue(inner, "Self", TempObjectReference, orig_inner_self);
+            Payload_SetValue(inner, "Self", TempObjectReference, orig_inner_self);
         }
     } else {
         // SPREAD_UP: bottom-up -- iterate children first, then self
@@ -315,7 +315,7 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
                 }
                 if (CLASSID_ISUNTYPED(handler_cid)) continue;
 
-                Payload_OverwriteValue(payload, "Self", TempObjectReference, ch);
+                Payload_SetValue(payload, "Self", TempObjectReference, ch);
                 payload->cid_target = ch->cid;
                 ClassDefinitions[handler_cid].ReceiveMessage(payload);
             }
@@ -336,14 +336,14 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
                 }
                 if (CLASSID_ISUNTYPED(handler_cid)) continue;
 
-                Payload_OverwriteValue(payload, "Self", TempObjectReference, ch);
+                Payload_SetValue(payload, "Self", TempObjectReference, ch);
                 payload->cid_target = ch->cid;
                 ClassDefinitions[handler_cid].ReceiveMessage(payload);
             }
         }
 
         // Now dispatch to self
-        Payload_OverwriteValue(inner, "Self", TempObjectReference, Self);
+        Payload_SetValue(inner, "Self", TempObjectReference, Self);
         inner->cid_target = Self->cid;
         DispatchMessage(inner);
 
@@ -351,12 +351,12 @@ SELF_MESSAGE_HANDLER_BEGIN(SpreadMessage)
         {
             void *cp = Payload_Get(inner, _GO_CONSUMED_KEY);
             if (cp && *(int *)cp != 0) {
-                Payload_OverwriteValue(inner, _GO_CONSUMED_KEY, int, 0);
+                Payload_SetValue(inner, _GO_CONSUMED_KEY, int, 0);
             }
         }
 
         // Restore inner Self
-        Payload_OverwriteValue(inner, "Self", TempObjectReference, orig_inner_self);
+        Payload_SetValue(inner, "Self", TempObjectReference, orig_inner_self);
     }
 MESSAGE_HANDLER_END()
 
