@@ -1,0 +1,15 @@
+#pragma once
+#define TYPE BadGO
+BEGIN_CLASS(0xA110);
+DECLARE_MID(DoStuff);
+MESSAGE_HANDLER_BEGIN(DoStuff)
+    Payload_SetValue(payload, "__go_consumed__", int, 1);
+MESSAGE_HANDLER_END()
+CAN_RECEIVE_BEGIN()
+    CAN_RECEIVE_MID(DoStuff)
+CAN_RECEIVE_END()
+RECEIVE_MESSAGE_BEGIN()
+    RECEIVE_MESSAGE_ROUTE(DoStuff)
+RECEIVE_MESSAGE_END()
+CLASSDEF()
+#undef TYPE

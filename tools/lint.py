@@ -814,6 +814,20 @@ def check_circular_inheritance_cross_file(files, errors):
             walk = class_parents[walk][0]
 
 
+def check_direct_consumed_key(filepath, source, source_bytes, tree, ignore, errors):
+    """R110: Direct use of reserved __go_consumed__ key."""
+    pattern = re.compile(r'\b(?:Payload_SetValue|Payload_Set|Payload_OverwriteValue|Payload_Overwrite)\s*\([^,]*,\s*"__go_consumed__"')
+    for i, line in enumerate(source.split("\n"), 1):
+        if is_ignored(i, ignore):
+            continue
+        if line.strip().startswith("#define"):
+            continue
+        if pattern.search(line):
+            errors.append(LintError(filepath, i, "R110",
+                'Direct use of reserved "__go_consumed__" key -- '
+                'use SPREAD_CONSUME() macro instead'))
+
+
 # ============================================================
 # Runner
 # ============================================================
@@ -846,6 +860,7 @@ ALL_RULES = [
     check_self_inherit,
     check_double_call_base,
     check_ignore_base_on_lifecycle,
+    check_direct_consumed_key,
 ]
 
 
