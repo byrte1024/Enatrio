@@ -163,7 +163,7 @@ static void ObjectContainer_FillEmptyTyped(TempObjectReference container){
         return;
     }
 
-    if(!CanDispatchMessage(MID_Default_SELF_Create, container->cid)){
+    if(!CanDispatchMessage(MID_Object_SELF_Create, container->cid)){
         LOG_ERROR("ObjectContainer is typed (%s) but does not support this SELF function, cannot fill", CLASSID_TOSTRING(container->cid));
         return;
     }
@@ -189,7 +189,7 @@ static void ObjectContainer_FillEmptyTyped(TempObjectReference container){
         return;
     }
 
-    MessagePayload payload = PrepareSelfPayload(container, MID_Default_SELF_Create);
+    MessagePayload payload = PrepareSelfPayload(container, MID_Object_SELF_Create);
     if(payload.data == NULL){
         LOG_ERROR("Failed to prepare SELF_Create payload");
         UnsafeVariedHashMap_Destroy(container->data->values);
@@ -235,12 +235,12 @@ static void ObjectContainer_EmptyFilledTyped(TempObjectReference container){
         return;
     }
 
-    if(!CanDispatchMessage(MID_Default_SELF_Destroy, container->cid)){
+    if(!CanDispatchMessage(MID_Object_SELF_Destroy, container->cid)){
         LOG_ERROR("ObjectContainer is typed (%s) but does not support SELF_Destroy, cannot empty.", CLASSID_TOSTRING(container->cid));
         return;
     }
 
-    MessagePayload payload = PrepareSelfPayload(container, MID_Default_SELF_Destroy);
+    MessagePayload payload = PrepareSelfPayload(container, MID_Object_SELF_Destroy);
     if(payload.data == NULL){
         LOG_ERROR("Failed to prepare SELF_Destroy payload");
         return;

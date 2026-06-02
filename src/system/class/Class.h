@@ -106,6 +106,7 @@ typedef struct ClassDefinition {
 
     ClassID cid;
     char classname[CLASS_MAXNAMELENGTH];
+    ClassID parent_cid;
 
     bool (*CanReceiveMID)(MessageID mid);
     void (*ReceiveMessage)(MessagePayload* payload);
@@ -167,6 +168,23 @@ static void RegisterClass(ClassDefinition def) {
         }
     }
 
+    // Parent validation
+    if (!CLASSID_ISUNTYPED(def.parent_cid)) {
+        if (!CLASSID_ISREGISTERED(def.parent_cid)) {
+            LOG_ERROR("Class %s: parent CID %d is not registered. Register parents first.",
+                def.classname, def.parent_cid);
+            return;
+        }
+        ClassID walk = def.parent_cid;
+        while (!CLASSID_ISUNTYPED(walk)) {
+            if (walk == def.cid) {
+                LOG_ERROR("Class %s: circular inheritance detected.", def.classname);
+                return;
+            }
+            walk = ClassDefinitions[walk].parent_cid;
+        }
+    }
+
     ClassDefinitions[def.cid] = def;
     LOG_INFO("Class %s registered with ID %d.", def.classname, def.cid);
 }
@@ -179,13 +197,13 @@ static void EndClassRegistrations() {
 }
 
 static inline bool CanDispatchMessage(MessageID mid, ClassID cid){
-    if(CLASSID_ISUNTYPED(cid)){
-        return false;
+    ClassID walk = cid;
+    while (!CLASSID_ISUNTYPED(walk)) {
+        if (!CLASSID_ISREGISTERED(walk)) return false;
+        if (ClassDefinitions[walk].CanReceiveMID(mid)) return true;
+        walk = ClassDefinitions[walk].parent_cid;
     }
-    if(!CLASSID_ISREGISTERED(cid)){
-        return false;
-    }
-    return ClassDefinitions[cid].CanReceiveMID(mid);
+    return false;
 }
 
 static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
@@ -214,17 +232,27 @@ static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
         return payload;
     }
 
-    // Check CanReceiveMID before ReceiveMessage dispatch -- avoids calling
-    // into a handler that does not exist, since the handler lookup is
-    // string-based and would silently fall through.
-    if(!ClassDefinitions[payload->cid_target].CanReceiveMID(payload->mid)){
-        LOG_ERROR("Class %d does not support message ID %s.", payload->cid_target, payload->mid);
-        payload->result = MESSAGE_RESULT_NOT_SUPPORTED;
-        return payload;
+    // Walk the inheritance chain to find the first class that handles
+    // this message. If no class in the chain supports it, return NOT_SUPPORTED.
+    {
+        ClassID walk = payload->cid_target;
+        bool handled = false;
+        while (!CLASSID_ISUNTYPED(walk)) {
+            if (!CLASSID_ISREGISTERED(walk)) break;
+            if (ClassDefinitions[walk].CanReceiveMID(payload->mid)) {
+                payload->result = MESSAGE_RESULT_PENDING;
+                ClassDefinitions[walk].ReceiveMessage(payload);
+                handled = true;
+                break;
+            }
+            walk = ClassDefinitions[walk].parent_cid;
+        }
+        if (!handled) {
+            LOG_ERROR("Class %d does not support message ID %s.", payload->cid_target, payload->mid);
+            payload->result = MESSAGE_RESULT_NOT_SUPPORTED;
+            return payload;
+        }
     }
-
-    payload->result = MESSAGE_RESULT_PENDING;
-    ClassDefinitions[payload->cid_target].ReceiveMessage(payload);
 
     // Check for PENDING after handler returns -- catches handlers that
     // forgot to set a result code, which would silently swallow errors.
@@ -313,6 +341,9 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     inline const ClassID BAT2(CID_, TYPE) = (ClassID)(id); \
     inline const char BAT2(CLASSNAME_, TYPE)[CLASS_MAXNAMELENGTH] = BSTR(TYPE)
 
+#define INHERITS(parentname) \
+    static const ClassID BAT2(_INHERITS_FROM_, TYPE) = BAT2(CID_, parentname)
+
 //   DECLARE_MID(Detonate)
 // Expands to (with #define TYPE Exploder):
 //   static MessageID MID_Exploder_Detonate = "Exploder.Detonate";
@@ -331,8 +362,8 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
     static void BAT4(MESSAGE_HANDLER_, TYPE, _, handlername)(MessagePayload* payload) { \
         payload->result = MESSAGE_RESULT_SUCCESS;
 
-//   MESSAGE_HANDLER_BEGIN_EXTERN(Default, SELF_Create)
-//   With TYPE=Counter -> MESSAGE_HANDLER_Counter_Default_SELF_Create
+//   MESSAGE_HANDLER_BEGIN_EXTERN(Object, SELF_Create)
+//   With TYPE=Counter -> MESSAGE_HANDLER_Counter_Object_SELF_Create
 #define MESSAGE_HANDLER_BEGIN_EXTERN(classname, handlername) \
     static void BAT6(MESSAGE_HANDLER_, TYPE, _, classname, _, handlername)(MessagePayload* payload) { \
         payload->result = MESSAGE_RESULT_SUCCESS;
@@ -423,8 +454,8 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
             BAT4(MESSAGE_HANDLER_, TYPE, _, msgname)(payload); \
         }
 
-//   RECEIVE_MESSAGE_ROUTE_EXTERN(Default, SELF_Create)
-//   Matches MID_Default_SELF_Create, calls MESSAGE_HANDLER_Counter_Default_SELF_Create
+//   RECEIVE_MESSAGE_ROUTE_EXTERN(Object, SELF_Create)
+//   Matches MID_Object_SELF_Create, calls MESSAGE_HANDLER_Counter_Object_SELF_Create
 #define RECEIVE_MESSAGE_ROUTE_EXTERN(classname, msgname) \
         else if (strcmp(payload->mid, BAT4(MID_, classname, _, msgname)) == 0) { \
             BAT6(MESSAGE_HANDLER_, TYPE, _, classname, _, msgname)(payload); \
@@ -444,10 +475,35 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
         ClassDefinition _cd = {0}; \
         _cd.cid = BAT2(CID_, TYPE); \
         strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
+        _cd.parent_cid = CID_Untyped; \
         _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
         _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
         return _cd; \
     }
+
+#define CLASSDEF_INHERITS(parentname) \
+    static ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
+        ClassDefinition _cd = {0}; \
+        _cd.cid = BAT2(CID_, TYPE); \
+        strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
+        _cd.parent_cid = BAT2(CID_, parentname); \
+        _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
+        _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
+        return _cd; \
+    }
+
+#define CALL_BASE() do { \
+    ClassID _base_cid = ClassDefinitions[BAT2(CID_, TYPE)].parent_cid; \
+    while (!CLASSID_ISUNTYPED(_base_cid)) { \
+        if (ClassDefinitions[_base_cid].CanReceiveMID(payload->mid)) { \
+            ClassDefinitions[_base_cid].ReceiveMessage(payload); \
+            break; \
+        } \
+        _base_cid = ClassDefinitions[_base_cid].parent_cid; \
+    } \
+} while (0)
+
+#define IGNORE_BASE() ((void)0)
 
 #undef LINTNORE
 

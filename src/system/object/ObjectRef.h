@@ -156,8 +156,8 @@ static void _ObjectContainer_TryCollectCycle(TempObjectReference root) {
         // Pass 1: dispatch SELF_Destroy for proper cleanup
         for (uint32_t i = 0; i < visited->count; i++) {
             TempObjectReference node = *(TempObjectReference*)UnsafeArray_Get(visited, i);
-            if (node->data != NULL && CanDispatchMessage(MID_Default_SELF_Destroy, node->cid)) {
-                MessagePayload p = PrepareSelfPayload(node, MID_Default_SELF_Destroy);
+            if (node->data != NULL && CanDispatchMessage(MID_Object_SELF_Destroy, node->cid)) {
+                MessagePayload p = PrepareSelfPayload(node, MID_Object_SELF_Destroy);
                 if (p.data != NULL) { DispatchMessage(&p); FreePayload(&p); }
             }
         }

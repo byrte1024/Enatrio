@@ -94,10 +94,11 @@ typedef struct {
     RECEIVE_MESSAGE_ROUTE_EXTERN(classname, BAT2(SELF_, msgname))
 
 // ============================================================
-// Default SELF MIDs
+// Object base class -- CID, classname, and SELF MIDs
 // ============================================================
 
-#define TYPE Default
+#define TYPE Object
+BEGIN_CLASS(0x0001);
 
 DECLARE_SELF_MID(Create);
 DECLARE_SELF_MID(Destroy);
@@ -105,3 +106,10 @@ DECLARE_SELF_MID(Serialize);
 DECLARE_SELF_MID(Deserialize);
 
 #undef TYPE
+
+// Backward-compat aliases: old Default MIDs -> Object MIDs.
+// Remove once all classes are migrated to use Object directly.
+#define MID_Default_SELF_Create    MID_Object_SELF_Create
+#define MID_Default_SELF_Destroy   MID_Object_SELF_Destroy
+#define MID_Default_SELF_Serialize MID_Object_SELF_Serialize
+#define MID_Default_SELF_Deserialize MID_Object_SELF_Deserialize

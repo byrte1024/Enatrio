@@ -4,3 +4,4 @@
 #include "ObjectContainer.h"
 #include "ObjectRef.h"
 #include "ObjectHelpers.h"
+#include "Object.h"
