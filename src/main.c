@@ -1,4 +1,4 @@
-#ifndef INTESTING
+#if !defined(INTESTING) && !defined(INBENCH)
 
 #include <stdio.h>
 #include <math.h>
