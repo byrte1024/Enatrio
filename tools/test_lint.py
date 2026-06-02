@@ -227,6 +227,11 @@ def main():
     expect_rule("r110_direct_consumed_key.h", "R110", should_trigger=True)
     expect_rule("r110_ok_spread_consume.h", "R110", should_trigger=False)
 
+    # R120: Duplicate MID local ID within a class
+    print("--- R120: Duplicate MID local ID ---")
+    expect_rule("r120_duplicate_mid_id.h", "R120", should_trigger=True)
+    expect_rule("inherit_ok.h", "R120", should_trigger=False)
+
     # all_ok.h should be completely clean
     print("--- Full clean file ---")
     expect_clean("all_ok.h")

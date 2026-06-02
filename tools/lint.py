@@ -911,6 +911,50 @@ def check_circular_inheritance_cross_file(files, errors):
             walk = class_parents[walk][0]
 
 
+def check_duplicate_mid_local_id(filepath, source, source_bytes, tree, ignore, errors):
+    """R120: Duplicate MID local ID within a class."""
+    pat_type_def = re.compile(r"^#define\s+TYPE\s+(\w+)")
+    pat_type_undef = re.compile(r"^#undef\s+TYPE\s*$")
+    pat_mid = re.compile(r"\bDECLARE_(?:SELF_)?MID\s*\(\s*\w+\s*,\s*(0x[0-9a-fA-F]+|\d+)\s*\)")
+
+    current_type = None
+    local_ids = {}  # local_id_str -> (line, mid_name)
+
+    for i, line in enumerate(source.split("\n"), 1):
+        if is_ignored(i, ignore):
+            continue
+        stripped = line.strip()
+
+        m = pat_type_def.match(stripped)
+        if m:
+            current_type = m.group(1)
+            local_ids = {}
+            continue
+
+        if pat_type_undef.match(stripped):
+            current_type = None
+            local_ids = {}
+            continue
+
+        if current_type is None:
+            continue
+
+        m = pat_mid.search(stripped)
+        if m:
+            local_id = m.group(1).lower()
+            # Extract the MID name for the error message
+            name_m = re.search(r"\bDECLARE_(?:SELF_)?MID\s*\(\s*(\w+)", stripped)
+            mid_name = name_m.group(1) if name_m else "?"
+
+            if local_id in local_ids:
+                prev_line, prev_name = local_ids[local_id]
+                errors.append(LintError(filepath, i, "R120",
+                    f"Duplicate MID local ID {m.group(1)} in class {current_type}: "
+                    f"'{mid_name}' conflicts with '{prev_name}' at line {prev_line}"))
+            else:
+                local_ids[local_id] = (i, mid_name)
+
+
 def check_direct_consumed_key(filepath, source, source_bytes, tree, ignore, errors):
     """R110: Direct use of reserved __go_consumed__ key."""
     pattern = re.compile(r'\b(?:Payload_SetValue|Payload_Set|Payload_OverwriteValue|Payload_Overwrite)\s*\([^,]*,\s*"__go_consumed__"')
@@ -958,6 +1002,7 @@ ALL_RULES = [
     check_double_call_base,
     check_ignore_base_on_lifecycle,
     check_direct_consumed_key,
+    check_duplicate_mid_local_id,
 ]
 
 

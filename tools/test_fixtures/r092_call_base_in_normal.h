@@ -1,7 +1,7 @@
 #pragma once
 #define TYPE MyClass
 BEGIN_CLASS(0x9092);
-DECLARE_MID(DoStuff);
+DECLARE_MID(DoStuff, 0x01);
 MESSAGE_HANDLER_BEGIN(DoStuff)
     CALL_BASE();
 MESSAGE_HANDLER_END()

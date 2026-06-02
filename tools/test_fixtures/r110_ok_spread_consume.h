@@ -1,7 +1,7 @@
 #pragma once
 #define TYPE GoodGO
 BEGIN_CLASS(0xA111);
-DECLARE_MID(DoStuff);
+DECLARE_MID(DoStuff, 0x01);
 MESSAGE_HANDLER_BEGIN(DoStuff)
     SPREAD_CONSUME(payload);
 MESSAGE_HANDLER_END()

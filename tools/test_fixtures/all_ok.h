@@ -2,7 +2,7 @@
 
 #define TYPE GoodClass
 BEGIN_CLASS(0x1111);
-DECLARE_MID(DoThing);
+DECLARE_MID(DoThing, 0x01);
 
 MESSAGE_HANDLER_BEGIN(DoThing)
     int x = 1;
