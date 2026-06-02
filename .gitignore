@@ -7,3 +7,4 @@ lib/raylib/lib/
 compile_commands.json
 .cache
 __pycache__/
+docs/superpowers/
