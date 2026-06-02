@@ -23,6 +23,7 @@ int main() {
   RegisterClass(GameObject_ClassDef());
   RegisterClass(BouncingBox_ClassDef());
   RegisterClass(SpinningCircle_ClassDef());
+  RegisterClass(Player_ClassDef());
   RegisterClass(Exploder_ClassDef());
   RegisterClass(Window_ClassDef());
   EndClassRegistrations();
@@ -50,6 +51,9 @@ int main() {
 
   TempObjectReference c1 = GameObject_CreateChild(root, CID_SpinningCircle);
   (void)c1;
+
+  TempObjectReference player = GameObject_CreateChild(root, CID_Player);
+  (void)player;
 
   TempObjectReference c2 = GameObject_CreateChild(root, CID_SpinningCircle);
   _Object_StoreValue(c2->data->values, "orbit", 5,

@@ -148,3 +148,78 @@ RECEIVE_MESSAGE_END()
 CLASSDEF_INHERITS(GameObject)
 
 #undef TYPE
+
+// ============================================================
+// Player -- arrow-key controlled square
+// ============================================================
+
+#define TYPE Player
+
+BEGIN_CLASS(0x2202);
+INHERITS(GameObject);
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
+    Self_SetTransient("x", float, 72.0f);
+    Self_SetTransient("y", float, 52.0f);
+    Self_SetTransient("w", float, 8.0f);
+    Self_SetTransient("h", float, 8.0f);
+    Self_SetTransient("speed", float, 50.0f);
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
+    IGNORE_BASE();
+    float dt = 0.0f;
+    if (MH_Has(dt)) dt = MH_GetDeref(dt, float);
+
+    float x = Self_GetDeref("x", float);
+    float y = Self_GetDeref("y", float);
+    float w = Self_GetDeref("w", float);
+    float h = Self_GetDeref("h", float);
+    float speed = Self_GetDeref("speed", float);
+
+    if (IsKeyDown(KEY_RIGHT)) x += speed * dt;
+    if (IsKeyDown(KEY_LEFT))  x -= speed * dt;
+    if (IsKeyDown(KEY_DOWN))  y += speed * dt;
+    if (IsKeyDown(KEY_UP))    y -= speed * dt;
+
+    if (x < 0.0f) x = 0.0f;
+    if (y < 0.0f) y = 0.0f;
+    if (x + w > 160.0f) x = 160.0f - w;
+    if (y + h > 120.0f) y = 120.0f - h;
+
+    Self_SetTransient("x", float, x);
+    Self_SetTransient("y", float, y);
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)
+    IGNORE_BASE();
+    float x = Self_GetDeref("x", float);
+    float y = Self_GetDeref("y", float);
+    float w = Self_GetDeref("w", float);
+    float h = Self_GetDeref("h", float);
+    DrawRectangle((int)x, (int)y, (int)w, (int)h, (Color){255, 255, 255, 255});
+    DrawRectangleLines((int)x, (int)y, (int)w, (int)h, (Color){40, 40, 40, 255});
+MESSAGE_HANDLER_END()
+
+CAN_RECEIVE_BEGIN()
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Update)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Render)
+CAN_RECEIVE_END()
+
+RECEIVE_MESSAGE_BEGIN()
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Update)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Render)
+RECEIVE_MESSAGE_END()
+
+CLASSDEF_INHERITS(GameObject)
+
+#undef TYPE
