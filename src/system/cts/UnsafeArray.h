@@ -88,8 +88,18 @@ static void UnsafeArray_Clear(UnsafeArray *arr) {
 
 static int UnsafeArray_AddBulk(UnsafeArray *arr, const void *data, uint32_t count) {
     if (count == 0) return 0;
-    while (arr->count + count > arr->capacity) {
-        if (_UnsafeArray_Grow(arr) != 0) return -1;
+    uint64_t needed = (uint64_t)arr->count + count;
+    if (needed > UINT32_MAX) return -1;
+    if ((uint32_t)needed > arr->capacity) {
+        uint32_t new_cap = arr->capacity;
+        while (new_cap < (uint32_t)needed) {
+            if (new_cap > UINT32_MAX / 2) { new_cap = UINT32_MAX; break; }
+            new_cap *= 2;
+        }
+        uint8_t *newbuf = (uint8_t *)realloc(arr->data, (size_t)new_cap * arr->element_size);
+        if (!newbuf) return -1;
+        arr->data = newbuf;
+        arr->capacity = new_cap;
     }
     memcpy(arr->data + (size_t)arr->count * arr->element_size,
            data, (size_t)count * arr->element_size);
@@ -98,12 +108,12 @@ static int UnsafeArray_AddBulk(UnsafeArray *arr, const void *data, uint32_t coun
 }
 
 static int UnsafeArray_ShrinkToFit(UnsafeArray *arr) {
-    if (arr->count == 0) return 0;
-    if (arr->count == arr->capacity) return 0;
-    uint8_t *newbuf = (uint8_t *)realloc(arr->data, (size_t)arr->count * arr->element_size);
+    uint32_t target = arr->count > 0 ? arr->count : 1;
+    if (target == arr->capacity) return 0;
+    uint8_t *newbuf = (uint8_t *)realloc(arr->data, (size_t)target * arr->element_size);
     if (!newbuf) return -1;
     arr->data = newbuf;
-    arr->capacity = arr->count;
+    arr->capacity = target;
     return 0;
 }
 
@@ -221,6 +231,7 @@ static void _UnsafeVaried_FreeData(UnsafeArray *data_free_list, uint32_t offset,
 
 static uint32_t _UnsafeVaried_WriteData(UnsafeArray *data, UnsafeArray *data_free_list,
                                          const void *value, uint32_t value_size) {
+    if (value_size == 0) return data->count;
     for (uint32_t i = 0; i < data_free_list->count; i++) {
         _UnsafeVariedFreeRegion *r = (_UnsafeVariedFreeRegion *)UnsafeArray_Get(data_free_list, i);
         if (r == NULL) continue;

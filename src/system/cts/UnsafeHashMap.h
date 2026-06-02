@@ -203,14 +203,41 @@ static int UnsafeHashMap_Remove(UnsafeHashMap *map, const void *key, uint32_t ke
 }
 
 static int UnsafeHashMap_Upsert(UnsafeHashMap *map, const void *key, uint32_t key_len, const void *value) {
+    if (key_len > UNSAFEHASHMAP_MAX_KEY_LEN) return -1;
+
+    // Rehash before probe so the slot we find is stable for insert
+    if ((uint64_t)(map->entry_count + 1) * UNSAFEHASHMAP_LOAD_FACTOR_DEN >
+        (uint64_t)map->bucket_count * UNSAFEHASHMAP_LOAD_FACTOR_NUM) {
+        _UnsafeHashMap_Rehash(map);
+    }
+
     uint32_t slot = _UnsafeHashMap_FindSlot(map, key, key_len);
     if (slot == map->bucket_count) return -1;
     UnsafeHashEntry *e = &map->buckets[slot];
+
+    // Existing key -- overwrite in place
     if (e->value >= 0 && e->key_len == key_len && memcmp(e->key, key, key_len) == 0) {
         memcpy(UnsafeArray_Get(map->values, (uint32_t)e->value), value, map->values->element_size);
         return 0;
     }
-    return UnsafeHashMap_Set(map, key, key_len, value);
+
+    // New key -- insert at this slot (same as Set but reusing the slot)
+    e->key = malloc(key_len);
+    if (!e->key) return -1;
+    memcpy(e->key, key, key_len);
+    e->key_len = key_len;
+
+    if (map->free_list->count > 0) {
+        int32_t reuse = UnsafeArray_GetDeref(map->free_list, map->free_list->count - 1, int32_t);
+        map->free_list->count--;
+        UnsafeArray_Set(map->values, (uint32_t)reuse, value);
+        e->value = reuse;
+    } else {
+        e->value = (int32_t)map->values->count;
+        UnsafeArray_Add(map->values, value);
+    }
+    map->entry_count++;
+    return 0;
 }
 
 typedef void (*UnsafeHashMapForEachFn)(const void *key, uint32_t key_len, void *value);
