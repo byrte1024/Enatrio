@@ -18,6 +18,55 @@
 #include "classes/scene_demo.h"
 
 // ============================================================
+// Benchmark-only classes
+// ============================================================
+
+// BenchNoOp: minimal class, 1 MID, no-op handler.
+#define TYPE BenchNoOp
+BEGIN_CLASS(0xB001);
+DECLARE_MID(Ping);
+MESSAGE_HANDLER_BEGIN(Ping)
+MESSAGE_HANDLER_END()
+CAN_RECEIVE_BEGIN()
+    CAN_RECEIVE_MID(Ping)
+CAN_RECEIVE_END()
+RECEIVE_MESSAGE_BEGIN()
+    RECEIVE_MESSAGE_ROUTE(Ping)
+RECEIVE_MESSAGE_END()
+CLASSDEF()
+#undef TYPE
+
+// BenchSelfNoOp: inherits Object, 1 SELF MID, no-op handler.
+#define TYPE BenchSelfNoOp
+BEGIN_CLASS(0xB003);
+INHERITS(Object);
+DECLARE_SELF_MID(Tick);
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+SELF_MESSAGE_HANDLER_BEGIN(Tick)
+    (void)Self;
+MESSAGE_HANDLER_END()
+CAN_RECEIVE_BEGIN()
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
+    SELF_CAN_RECEIVE_MID(Tick)
+CAN_RECEIVE_END()
+RECEIVE_MESSAGE_BEGIN()
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE(Tick)
+RECEIVE_MESSAGE_END()
+CLASSDEF_INHERITS(Object)
+#undef TYPE
+
+// Generated extreme classes: 32, 100, 1000 MIDs each
+#include "bench_classes.h"
+
+// ============================================================
 // Benchmark harness
 // ============================================================
 
@@ -237,11 +286,7 @@ static void bench_scaling(void) {
 // Object System: Class dispatch
 // ============================================================
 
-static void bench_dispatch(void) {
-    _header("Class System: Message Dispatch");
-    int NB = 100000;
-    double a, b;
-
+static void _register_bench_classes(void) {
     BeginClassRegistrations();
     RegisterClass(Object_ClassDef());
     RegisterClass(GameObject_ClassDef());
@@ -250,81 +295,154 @@ static void bench_dispatch(void) {
     RegisterClass(Player_ClassDef());
     RegisterClass(Exploder_ClassDef());
     RegisterClass(Window_ClassDef());
+    RegisterClass(BenchNoOp_ClassDef());
+    RegisterClass(BenchSelfNoOp_ClassDef());
+    RegisterClass(BenchN32_ClassDef());
+    RegisterClass(BenchN100_ClassDef());
+    RegisterClass(BenchN1000_ClassDef());
     EndClassRegistrations();
+}
 
-    // Pure PreparePayload + FreePayload (pool recycle)
+static void bench_dispatch(void) {
+    _header("Dispatch: Core (stable, no-op handlers)");
+    int NB = 200000;
+    double a, b;
+
+    // Warmup: prime pool + caches
+    for (int i = 0; i < 5000; i++) {
+        MessagePayload p = PreparePayload(CID_BenchNoOp, MID_BenchNoOp_Ping);
+        DispatchMessage(&p);
+        FreePayload(&p);
+    }
+
+    // Pure payload alloc/free cycle (pool)
     { a=_now_ns();
       for(int i=0;i<NB;i++){
-          MessagePayload p = PreparePayload(CID_Exploder, MID_Exploder_ShimmiShimmiYea);
+          MessagePayload p = PreparePayload(CID_BenchNoOp, MID_BenchNoOp_Ping);
           FreePayload(&p);
       } b=_now_ns();
       _pb("PreparePayload + FreePayload (pool)", NB, b-a); }
 
-    // Dispatch (stateless, no Self)
+    // Minimal dispatch: 1-MID class, no-op handler
     { a=_now_ns();
       for(int i=0;i<NB;i++){
-          MessagePayload p = PreparePayload(CID_Exploder, MID_Exploder_ShimmiShimmiYea);
-          Payload_SetValue(&p, "Strength", float, 5.0f);
+          MessagePayload p = PreparePayload(CID_BenchNoOp, MID_BenchNoOp_Ping);
           DispatchMessage(&p);
           FreePayload(&p);
       } b=_now_ns();
-      _pb("Dispatch (Exploder, stateless)", NB, b-a); }
+      _pb("Dispatch (1 MID, no-op handler)", NB, b-a); }
 
-    // SelfDispatch (object lifecycle)
-    { ExternalReference obj = Object_CreateRef(CID_GameObject);
-      a=_now_ns();
-      for(int i=0;i<NB;i++){
-          MessagePayload p = PrepareSelfPayload(ObjectContainer_TempFrom(obj), MID_GameObject_SELF_Update);
-          DispatchMessage(&p);
-          FreePayload(&p);
-      } b=_now_ns();
-      _pb("SelfDispatch (GameObject Update, no-op)", NB, b-a);
-      ObjectContainer_UnRef_External(&obj); }
-
-    // SELF_DISPATCH macro
-    { ExternalReference obj = Object_CreateRef(CID_GameObject);
+    // SelfDispatch: 1 MID on Self object, no-op
+    { ExternalReference obj = Object_CreateRef(CID_BenchSelfNoOp);
       TempObjectReference t = ObjectContainer_TempFrom(obj);
       a=_now_ns();
       for(int i=0;i<NB;i++){
-          SELF_DISPATCH(t, MID_GameObject_SELF_Update, {}, {});
+          SELF_DISPATCH(t, MID_BenchSelfNoOp_SELF_Tick, {}, {});
       } b=_now_ns();
-      _pb("SELF_DISPATCH macro (GameObject Update)", NB, b-a);
+      _pb("SELF_DISPATCH (1 SELF MID, no-op)", NB, b-a);
       ObjectContainer_UnRef_External(&obj); }
 
-    // Payload_SetValue + Payload_GetDeref
-    { MessagePayload p = PreparePayload(CID_Exploder, MID_Exploder_ShimmiShimmiYea);
+    // Payload Set + Get (shared payload, no dispatch)
+    { MessagePayload p = PreparePayload(CID_BenchNoOp, MID_BenchNoOp_Ping);
       a=_now_ns();
-      for(int i=0;i<NB;i++){
-          Payload_SetValue(&p, "val", int, i);
-      } b=_now_ns();
+      for(int i=0;i<NB;i++) Payload_SetValue(&p, "v", int, i);
+      b=_now_ns();
       _pb("Payload_SetValue (upsert, same key)", NB, b-a);
-      a=_now_ns();
       volatile int v;
-      for(int i=0;i<NB;i++){
-          v = Payload_GetDeref(&p, "val", int);
-      } b=_now_ns();
+      a=_now_ns();
+      for(int i=0;i<NB;i++) v = Payload_GetDeref(&p, "v", int);
+      b=_now_ns();
       (void)v;
       _pb("Payload_GetDeref (existing key)", NB, b-a);
       FreePayload(&p); }
 
-    // Inheritance chain walk: dispatch to grandchild (3-level chain)
-    { ExternalReference obj = Object_CreateRef(CID_BouncingBox);
-      TempObjectReference t = ObjectContainer_TempFrom(obj);
+    // CanDispatchMessage: direct (no chain walk)
+    { volatile int r;
       a=_now_ns();
-      for(int i=0;i<NB;i++){
-          SELF_DISPATCH(t, MID_Object_SELF_Create, {}, {});
-      } b=_now_ns();
-      _pb("Chain walk dispatch (BouncingBox->GO->Object)", NB, b-a);
-      ObjectContainer_UnRef_External(&obj); }
-
-    // CanDispatchMessage
-    { a=_now_ns();
-      volatile int r;
-      for(int i=0;i<NB;i++){
-          r = CanDispatchMessage(MID_GameObject_SELF_Update, CID_BouncingBox);
-      } b=_now_ns();
+      for(int i=0;i<NB;i++) r = CanDispatchMessage(MID_BenchNoOp_Ping, CID_BenchNoOp);
+      b=_now_ns();
       (void)r;
-      _pb("CanDispatchMessage (chain walk, 2 levels)", NB, b-a); }
+      _pb("CanDispatchMessage (direct, 1 MID)", NB, b-a); }
+
+    // CanDispatchMessage: chain walk (BouncingBox -> GO -> Object)
+    { volatile int r;
+      a=_now_ns();
+      for(int i=0;i<NB;i++) r = CanDispatchMessage(MID_Object_SELF_Create, CID_BouncingBox);
+      b=_now_ns();
+      (void)r;
+      _pb("CanDispatchMessage (chain walk, 3 levels)", NB, b-a); }
+}
+
+static void bench_dispatch_scaling(void) {
+    _header("Dispatch Scaling: first MID vs last MID vs N MIDs");
+    int NB = 200000;
+    double a, b;
+
+    // Warmup
+    for (int i = 0; i < 5000; i++) {
+        MessagePayload p = PreparePayload(CID_BenchN32, MID_BenchN32_F0001);
+        DispatchMessage(&p); FreePayload(&p);
+    }
+
+    // --- 32 MIDs ---
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_BenchN32, MID_BenchN32_F0001);
+          DispatchMessage(&p); FreePayload(&p);
+      } b=_now_ns();
+      _pb("32 MIDs: dispatch FIRST (F0001)", NB, b-a); }
+
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_BenchN32, MID_BenchN32_F0032);
+          DispatchMessage(&p); FreePayload(&p);
+      } b=_now_ns();
+      _pb("32 MIDs: dispatch LAST (F0032)", NB, b-a); }
+
+    { volatile int r; a=_now_ns();
+      for(int i=0;i<NB;i++) r = CanDispatchMessage(MID_BenchN32_F0032, CID_BenchN32);
+      b=_now_ns(); (void)r;
+      _pb("32 MIDs: CanDispatch LAST", NB, b-a); }
+
+    // --- 100 MIDs ---
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_BenchN100, MID_BenchN100_F0001);
+          DispatchMessage(&p); FreePayload(&p);
+      } b=_now_ns();
+      _pb("100 MIDs: dispatch FIRST (F0001)", NB, b-a); }
+
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_BenchN100, MID_BenchN100_F0100);
+          DispatchMessage(&p); FreePayload(&p);
+      } b=_now_ns();
+      _pb("100 MIDs: dispatch LAST (F0100)", NB, b-a); }
+
+    { volatile int r; a=_now_ns();
+      for(int i=0;i<NB;i++) r = CanDispatchMessage(MID_BenchN100_F0100, CID_BenchN100);
+      b=_now_ns(); (void)r;
+      _pb("100 MIDs: CanDispatch LAST", NB, b-a); }
+
+    // --- 1000 MIDs ---
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_BenchN1000, MID_BenchN1000_F0001);
+          DispatchMessage(&p); FreePayload(&p);
+      } b=_now_ns();
+      _pb("1000 MIDs: dispatch FIRST (F0001)", NB, b-a); }
+
+    { a=_now_ns();
+      for(int i=0;i<NB;i++){
+          MessagePayload p = PreparePayload(CID_BenchN1000, MID_BenchN1000_F1000);
+          DispatchMessage(&p); FreePayload(&p);
+      } b=_now_ns();
+      _pb("1000 MIDs: dispatch LAST (F1000)", NB, b-a); }
+
+    { volatile int r; a=_now_ns();
+      for(int i=0;i<NB;i++) r = CanDispatchMessage(MID_BenchN1000_F1000, CID_BenchN1000);
+      b=_now_ns(); (void)r;
+      _pb("1000 MIDs: CanDispatch LAST", NB, b-a); }
 }
 
 // ============================================================
@@ -452,10 +570,12 @@ int main(void) {
     printf("Build: release (-O2), %d source files, %d lines\n", SRC_FILE_COUNT, SRC_LINE_COUNT);
     printf("Columns: ops | total time | per-op time | max ops within 1ms / 8.33ms / 16.67ms\n");
 
+    _register_bench_classes();
+
     // Warmup: prime the payload pool and CPU caches
     {
         for (int i = 0; i < 1000; i++) {
-            MessagePayload p = PreparePayload(CID_Untyped, MESSAGEID_EMPTY);
+            MessagePayload p = PreparePayload(CID_BenchNoOp, MID_BenchNoOp_Ping);
             FreePayload(&p);
         }
         printf("Payload pool primed: %u cached\n", _payload_pool_count);
@@ -467,6 +587,7 @@ int main(void) {
     bench_dictionary();
     bench_scaling();
     bench_dispatch();
+    bench_dispatch_scaling();
     bench_lifecycle();
     bench_spread();
 
