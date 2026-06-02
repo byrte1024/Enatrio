@@ -10,7 +10,7 @@
 // Shared execution log
 // ============================================================
 
-static int _go_exec_log[64];
+static int _go_exec_log[128];
 static int _go_exec_count = 0;
 static void _go_exec_reset(void) { _go_exec_count = 0; memset(_go_exec_log, 0, sizeof(_go_exec_log)); }
 
@@ -98,6 +98,58 @@ CLASSDEF_INHERITS(GameObject)
 #undef TYPE
 
 // ============================================================
+// Test class: GOAdder (CID 0x2003) -- inherits GameObject
+// On Update, adds a new child (once) to test snapshot safety
+// ============================================================
+
+#define TYPE GOAdder
+
+BEGIN_CLASS(0x2003);
+INHERITS(GameObject);
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
+    Self_SetValue("id", int, 0);
+    Self_SetValue("did_add", int, 0);
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
+    IGNORE_BASE();
+    int id = Self_GetDeref("id", int);
+    _go_exec_log[_go_exec_count++] = id;
+    int did_add = Self_GetDeref("did_add", int);
+    if (!did_add) {
+        Self_SetValue("did_add", int, 1);
+        // Add a new child during spread
+        TempObjectReference new_child = GameObject_CreateChild(Self, CID_GOTestNode);
+        if (new_child) {
+            _Object_StoreValue(new_child->data->values, "id", 2,
+                               &(int){999}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+        }
+    }
+MESSAGE_HANDLER_END()
+
+CAN_RECEIVE_BEGIN()
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Update)
+CAN_RECEIVE_END()
+
+RECEIVE_MESSAGE_BEGIN()
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Update)
+RECEIVE_MESSAGE_END()
+
+CLASSDEF_INHERITS(GameObject)
+
+#undef TYPE
+
+// ============================================================
 // Helper: create a GOTestNode with given id and priority
 // ============================================================
 
@@ -129,6 +181,7 @@ static void _go_register_all(void) {
     RegisterClass(GOTestNode_ClassDef());
     RegisterClass(GOConsumer_ClassDef());
     RegisterClass(Exploder_ClassDef());
+    RegisterClass(GOAdder_ClassDef());
     EndClassRegistrations();
 }
 
@@ -529,6 +582,541 @@ static void test_go_create_child_helpers(void) {
 }
 
 // ============================================================
+// Edge case: empty tree
+// ============================================================
+
+static void test_go_spread_empty_tree(void) {
+    TEST("go: SPREAD_DOWN on root with 0 children -- only root receives");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+
+    ASSERT(_go_exec_count == 1);
+    ASSERT(_go_exec_log[0] == 1);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Edge case: single child
+// ============================================================
+
+static void test_go_spread_single_child(void) {
+    TEST("go: root + 1 child, both receive in correct order");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    _go_create_node(root, 2, 0);
+
+    // DOWN: root first, then child
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+    ASSERT(_go_exec_count == 2);
+    ASSERT(_go_exec_log[0] == 1);
+    ASSERT(_go_exec_log[1] == 2);
+
+    // UP: child first, then root
+    _go_exec_reset();
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_UP, {}, {});
+    ASSERT(_go_exec_count == 2);
+    ASSERT(_go_exec_log[0] == 2);
+    ASSERT(_go_exec_log[1] == 1);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Remove nonexistent child
+// ============================================================
+
+static void test_go_remove_nonexistent_child(void) {
+    TEST("go: RemoveChild on non-child returns NOT_FOUND, count unchanged");
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+
+    _go_create_node(root, 10, 0);
+
+    // Create a separate node not in root's child list
+    ExternalReference other_ref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference other = ObjectContainer_TempFrom(other_ref);
+
+    uint8_t result = SELF_DISPATCH(root, MID_GameObject_SELF_RemoveChild, {
+        Payload_SetValue(msg, "child", TempObjectReference, other);
+    }, {});
+
+    ASSERT(result == MESSAGE_RESULT_NOT_FOUND);
+
+    int *count = (int *)_Object_GetValueData(root->data->values, "child_count", 11);
+    ASSERT(count != NULL);
+    ASSERT(*count == 1);
+
+    ObjectContainer_UnRef_External(&other_ref);
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Remove only child
+// ============================================================
+
+static void test_go_remove_only_child(void) {
+    TEST("go: remove only child -> child_count=0, parent cleared");
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+
+    ExternalReference cref = GameObject_CreateChildRef(root, CID_GOTestNode);
+    TempObjectReference child = ObjectContainer_TempFrom(cref);
+
+    SELF_DISPATCH(root, MID_GameObject_SELF_RemoveChild, {
+        Payload_SetValue(msg, "child", TempObjectReference, child);
+    }, {});
+
+    int *count = (int *)_Object_GetValueData(root->data->values, "child_count", 11);
+    ASSERT(count != NULL);
+    ASSERT(*count == 0);
+
+    TempObjectReference parent = Object_SGetRef(child, "parent");
+    ASSERT(parent == NULL);
+
+    ObjectContainer_UnRef_External(&cref);
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Remove first child (re-indexing)
+// ============================================================
+
+static void test_go_remove_first_child(void) {
+    TEST("go: remove first of 3 children, verify re-indexing");
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+
+    ExternalReference c1ref = GameObject_CreateChildRef(root, CID_GOTestNode);
+    TempObjectReference c1 = ObjectContainer_TempFrom(c1ref);
+    _Object_StoreValue(c1->data->values, "id", 2, &(int){10}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    TempObjectReference c2 = _go_create_node(root, 20, 0);
+    TempObjectReference c3 = _go_create_node(root, 30, 0);
+
+    SELF_DISPATCH(root, MID_GameObject_SELF_RemoveChild, {
+        Payload_SetValue(msg, "child", TempObjectReference, c1);
+    }, {});
+
+    int *count = (int *)_Object_GetValueData(root->data->values, "child_count", 11);
+    ASSERT(*count == 2);
+
+    char kbuf[_GO_CHILD_KEY_MAX];
+    uint32_t klen = _go_child_key(kbuf, 0);
+    TempObjectReference slot0 = Object_GetRef(root, kbuf, klen);
+    ASSERT(slot0 == c2);
+
+    klen = _go_child_key(kbuf, 1);
+    TempObjectReference slot1 = Object_GetRef(root, kbuf, klen);
+    ASSERT(slot1 == c3);
+
+    ObjectContainer_UnRef_External(&c1ref);
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Remove last child
+// ============================================================
+
+static void test_go_remove_last_child(void) {
+    TEST("go: remove last of 3 children, verify remaining");
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+
+    TempObjectReference c1 = _go_create_node(root, 10, 0);
+    TempObjectReference c2 = _go_create_node(root, 20, 0);
+    ExternalReference c3ref = GameObject_CreateChildRef(root, CID_GOTestNode);
+    TempObjectReference c3 = ObjectContainer_TempFrom(c3ref);
+    _Object_StoreValue(c3->data->values, "id", 2, &(int){30}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    SELF_DISPATCH(root, MID_GameObject_SELF_RemoveChild, {
+        Payload_SetValue(msg, "child", TempObjectReference, c3);
+    }, {});
+
+    int *count = (int *)_Object_GetValueData(root->data->values, "child_count", 11);
+    ASSERT(*count == 2);
+
+    char kbuf[_GO_CHILD_KEY_MAX];
+    uint32_t klen = _go_child_key(kbuf, 0);
+    TempObjectReference slot0 = Object_GetRef(root, kbuf, klen);
+    ASSERT(slot0 == c1);
+
+    klen = _go_child_key(kbuf, 1);
+    TempObjectReference slot1 = Object_GetRef(root, kbuf, klen);
+    ASSERT(slot1 == c2);
+
+    ObjectContainer_UnRef_External(&c3ref);
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// SetPriority on root (no parent) -- should not crash
+// ============================================================
+
+static void test_go_set_priority_no_parent(void) {
+    TEST("go: SetPriority on root (no parent) succeeds");
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+
+    uint8_t result = SELF_DISPATCH(root, MID_GameObject_SELF_SetPriority, {
+        Payload_SetValue(msg, "priority", int, 42);
+    }, {});
+
+    ASSERT(MESSAGE_RESULT_ISOK(result));
+
+    int *pri = (int *)_Object_GetValueData(root->data->values, "priority", 8);
+    ASSERT(pri != NULL);
+    ASSERT(*pri == 42);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// SetPriority on child without external ref (guard ref test)
+// ============================================================
+
+static void test_go_set_priority_no_ext_ref(void) {
+    TEST("go: SetPriority on child with no ext ref does not crash");
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+
+    TempObjectReference child = GameObject_CreateChild(root, CID_GOTestNode);
+    ASSERT(child != NULL);
+    _Object_StoreValue(child->data->values, "id", 2, &(int){5}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    SELF_DISPATCH(child, MID_GameObject_SELF_SetPriority, {
+        Payload_SetValue(msg, "priority", int, 30);
+    }, {});
+
+    // Verify child is still in parent's list
+    int *count = (int *)_Object_GetValueData(root->data->values, "child_count", 11);
+    ASSERT(count != NULL);
+    ASSERT(*count == 1);
+
+    char kbuf[_GO_CHILD_KEY_MAX];
+    uint32_t klen = _go_child_key(kbuf, 0);
+    TempObjectReference slot0 = Object_GetRef(root, kbuf, klen);
+    ASSERT(slot0 == child);
+
+    int *pri = (int *)_Object_GetValueData(child->data->values, "priority", 8);
+    ASSERT(pri != NULL);
+    ASSERT(*pri == 30);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Consume at root -- children skipped
+// ============================================================
+
+static void test_go_consume_root(void) {
+    TEST("go: root consumes -> children skipped");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOConsumer);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOConsumer, SER_SKIP, 0);
+
+    _go_create_node(root, 2, 0);
+    _go_create_node(root, 3, 0);
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+
+    ASSERT(_go_exec_count == 1);
+    ASSERT(_go_exec_log[0] == 1);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Consume does not affect siblings
+// ============================================================
+
+static void test_go_consume_does_not_affect_siblings(void) {
+    TEST("go: consumer child does not block sibling execution");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    // child_0: GOConsumer(id=2)
+    TempObjectReference consumer = GameObject_CreateChild(root, CID_GOConsumer);
+    _Object_StoreValue(consumer->data->values, "id", 2, &(int){2}, sizeof(int), CID_GOConsumer, SER_SKIP, 0);
+
+    // child_1: GOTestNode(id=3)
+    _go_create_node(root, 3, 0);
+    // child_2: GOTestNode(id=4)
+    _go_create_node(root, 4, 0);
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+
+    // root(1), consumer(2) consumes its subtree, but siblings 3 and 4 still run
+    ASSERT(_go_exec_count == 4);
+    ASSERT(_go_exec_log[0] == 1);
+    ASSERT(_go_exec_log[1] == 2);
+    ASSERT(_go_exec_log[2] == 3);
+    ASSERT(_go_exec_log[3] == 4);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Consume nested -- middle consumes, leaf skipped
+// ============================================================
+
+static void test_go_consume_nested(void) {
+    TEST("go: nested consumer skips its subtree only");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    // middle: GOConsumer(id=2)
+    TempObjectReference middle = GameObject_CreateChild(root, CID_GOConsumer);
+    _Object_StoreValue(middle->data->values, "id", 2, &(int){2}, sizeof(int), CID_GOConsumer, SER_SKIP, 0);
+
+    // leaf under middle: GOTestNode(id=3)
+    _go_create_node(middle, 3, 0);
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+
+    // root(1) visited, middle(2) consumes -> leaf(3) skipped
+    ASSERT(_go_exec_count == 2);
+    ASSERT(_go_exec_log[0] == 1);
+    ASSERT(_go_exec_log[1] == 2);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// SPREAD_UP deep tree
+// ============================================================
+
+static void test_go_spread_up_deep(void) {
+    TEST("go: SPREAD_UP deep tree visits deepest first");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    TempObjectReference mid = _go_create_node(root, 2, 0);
+    _go_create_node(mid, 3, 0);
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_UP, {}, {});
+
+    ASSERT(_go_exec_count == 3);
+    ASSERT(_go_exec_log[0] == 3);
+    ASSERT(_go_exec_log[1] == 2);
+    ASSERT(_go_exec_log[2] == 1);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// SPREAD_UP: consume has no effect on siblings
+// ============================================================
+
+static void test_go_spread_up_consume_no_effect(void) {
+    TEST("go: SPREAD_CONSUME in SPREAD_UP does not prevent siblings");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    // child_0: GOConsumer(id=2)
+    TempObjectReference consumer = GameObject_CreateChild(root, CID_GOConsumer);
+    _Object_StoreValue(consumer->data->values, "id", 2, &(int){2}, sizeof(int), CID_GOConsumer, SER_SKIP, 0);
+
+    // child_1: GOTestNode(id=3)
+    _go_create_node(root, 3, 0);
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_UP, {}, {});
+
+    // UP: children first (2, 3), then root (1). Consumer's consume has no effect.
+    ASSERT(_go_exec_count == 3);
+    ASSERT(_go_exec_log[0] == 2);
+    ASSERT(_go_exec_log[1] == 3);
+    ASSERT(_go_exec_log[2] == 1);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Add child during spread (snapshot safety)
+// ============================================================
+
+static void test_go_add_child_during_spread(void) {
+    TEST("go: child added during spread not visited (snapshot safety)");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    // child_0: GOAdder(id=2) -- will add a child(999) during its Update
+    TempObjectReference adder = GameObject_CreateChild(root, CID_GOAdder);
+    _Object_StoreValue(adder->data->values, "id", 2, &(int){2}, sizeof(int), CID_GOAdder, SER_SKIP, 0);
+
+    // child_1: GOTestNode(id=3)
+    _go_create_node(root, 3, 0);
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+
+    // Snapshot was taken before adder added child 999, so 999 should NOT be in the log
+    ASSERT(_go_exec_count == 3);
+    ASSERT(_go_exec_log[0] == 1);
+    ASSERT(_go_exec_log[1] == 2);
+    ASSERT(_go_exec_log[2] == 3);
+
+    // Verify the new child exists on the adder
+    int *adder_count = (int *)_Object_GetValueData(adder->data->values, "child_count", 11);
+    ASSERT(adder_count != NULL);
+    ASSERT(*adder_count == 1);
+
+    // Verify the new child has id 999
+    char kbuf[_GO_CHILD_KEY_MAX];
+    uint32_t klen = _go_child_key(kbuf, 0);
+    TempObjectReference new_child = Object_GetRef(adder, kbuf, klen);
+    ASSERT(new_child != NULL);
+    int *new_id = (int *)_Object_GetValueData(new_child->data->values, "id", 2);
+    ASSERT(new_id != NULL);
+    ASSERT(*new_id == 999);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Ref counting: dropping root ext ref cleans up tree
+// ============================================================
+
+static void test_go_child_ref_count(void) {
+    TEST("go: children held by parent internal refs, cleanup on root drop");
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+
+    TempObjectReference c1 = GameObject_CreateChild(root, CID_GOTestNode);
+    TempObjectReference c2 = GameObject_CreateChild(root, CID_GOTestNode);
+    ASSERT(c1 != NULL);
+    ASSERT(c2 != NULL);
+
+    // Children should have internal_refs > 0 (held by parent)
+    ASSERT(c1->internal_refs > 0);
+    ASSERT(c2->internal_refs > 0);
+
+    // Drop root ext ref -- GC should collect the tree
+    ObjectContainer_UnRef_External(&rref);
+    ASSERT(rref == NULL);
+
+    PASS();
+}
+
+// ============================================================
+// CreateChildRef -- ext ref works, unref keeps child alive via parent
+// ============================================================
+
+static void test_go_create_child_ref_cleanup(void) {
+    TEST("go: CreateChildRef ext ref works, child survives unref");
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+
+    ExternalReference cref = GameObject_CreateChildRef(root, CID_GOTestNode);
+    ASSERT(cref != NULL);
+    TempObjectReference child = ObjectContainer_TempFrom(cref);
+    ASSERT(child != NULL);
+    ASSERT(child->data != NULL);
+
+    // Unref external -- child should survive via parent's internal ref
+    ObjectContainer_UnRef_External(&cref);
+    ASSERT(cref == NULL);
+
+    // Child should still be accessible from parent
+    char kbuf[_GO_CHILD_KEY_MAX];
+    uint32_t klen = _go_child_key(kbuf, 0);
+    TempObjectReference slot0 = Object_GetRef(root, kbuf, klen);
+    ASSERT(slot0 == child);
+    ASSERT(slot0->data != NULL);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Multiple spreads accumulate in exec_log
+// ============================================================
+
+static void test_go_multiple_updates(void) {
+    TEST("go: multiple Update spreads accumulate correctly");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){1}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    _go_create_node(root, 2, 0);
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+
+    ASSERT(_go_exec_count == 6);
+    // Each spread: 1, 2
+    ASSERT(_go_exec_log[0] == 1);
+    ASSERT(_go_exec_log[1] == 2);
+    ASSERT(_go_exec_log[2] == 1);
+    ASSERT(_go_exec_log[3] == 2);
+    ASSERT(_go_exec_log[4] == 1);
+    ASSERT(_go_exec_log[5] == 2);
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
+// Large child count (100 children)
+// ============================================================
+
+static void test_go_many_children(void) {
+    TEST("go: 100 children all visited in spread");
+    _go_exec_reset();
+    ExternalReference rref = GameObject_CreateRootRef(CID_GOTestNode);
+    TempObjectReference root = ObjectContainer_TempFrom(rref);
+    _Object_StoreValue(root->data->values, "id", 2, &(int){0}, sizeof(int), CID_GOTestNode, SER_SKIP, 0);
+
+    for (int i = 1; i <= 100; i++) {
+        _go_create_node(root, i, 0);
+    }
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
+
+    ASSERT(_go_exec_count == 101);
+    ASSERT(_go_exec_log[0] == 0); // root
+    for (int i = 1; i <= 100; i++) {
+        ASSERT(_go_exec_log[i] == i);
+    }
+
+    ObjectContainer_UnRef_External(&rref);
+    PASS();
+}
+
+// ============================================================
 // Runner
 // ============================================================
 
@@ -550,6 +1138,26 @@ static void run_gameobject_tests(void) {
     test_go_set_priority_resorts();
     test_go_parent_ref_after_remove();
     test_go_create_child_helpers();
+
+    // New comprehensive tests
+    test_go_spread_empty_tree();
+    test_go_spread_single_child();
+    test_go_remove_nonexistent_child();
+    test_go_remove_only_child();
+    test_go_remove_first_child();
+    test_go_remove_last_child();
+    test_go_set_priority_no_parent();
+    test_go_set_priority_no_ext_ref();
+    test_go_consume_root();
+    test_go_consume_does_not_affect_siblings();
+    test_go_consume_nested();
+    test_go_spread_up_deep();
+    test_go_spread_up_consume_no_effect();
+    test_go_add_child_during_spread();
+    test_go_child_ref_count();
+    test_go_create_child_ref_cleanup();
+    test_go_multiple_updates();
+    test_go_many_children();
 }
 
 #undef LINTNORE
