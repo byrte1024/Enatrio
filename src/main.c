@@ -116,27 +116,25 @@ int main() {
       Payload_SetValue(msg, "dt", float, dt);
     }, {});
     t1 = GetTime();
-#ifdef DEBUG
-    }
-#endif
 
     BeginDrawing();
     ClearBackground(BLACK);
 
-#ifdef DEBUG
-    if (!game_paused) {
-#endif
     Window_BeginFrame();
     ClearBackground(RAYWHITE);
     DrawText("Enatrio", 4, 4, 8, DARKGRAY);
 
     GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Render, SPREAD_DOWN, {}, {});
-#ifdef DEBUG
-    }
-#endif
 
     Window_EndFrame();
     t2 = GetTime();
+#ifdef DEBUG
+    } else {
+        BeginDrawing();
+        ClearBackground(BLACK);
+        Window_BlitVirtualScreen();
+    }
+#endif
 
 #ifdef DEBUG
     EditorOverlay_SetUpdateTime((t1 - t0) * 1e6);

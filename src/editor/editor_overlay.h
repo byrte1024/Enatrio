@@ -80,7 +80,11 @@ static void EditorOverlay_DumpScene(ExternalReference *scene_ref) {
     }
 
     char dump_dir[512];
+#ifdef _WIN32
+    snprintf(dump_dir, sizeof(dump_dir), "%s\\Dumps", base);
+#else
     snprintf(dump_dir, sizeof(dump_dir), "%s/Dumps", base);
+#endif
 #ifdef _WIN32
     mkdir(dump_dir);
 #else
@@ -90,9 +94,15 @@ static void EditorOverlay_DumpScene(ExternalReference *scene_ref) {
     time_t now = time(NULL);
     struct tm *t = localtime(&now);
     char filename[640];
+#ifdef _WIN32
+    snprintf(filename, sizeof(filename),
+             "%s\\%04d%02d%02d_%02d%02d%02d_root.cob",
+             dump_dir,
+#else
     snprintf(filename, sizeof(filename),
              "%s/%04d%02d%02d_%02d%02d%02d_root.cob",
              dump_dir,
+#endif
              t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
              t->tm_hour, t->tm_min, t->tm_sec);
 
@@ -157,7 +167,10 @@ static int _editor_draw_button(int x, int y, int w, int h,
     Vector2 mouse = GetMousePosition();
     int hover = (mouse.x >= x && mouse.x <= x + w &&
                  mouse.y >= y && mouse.y <= y + h);
-    Color bg_draw = hover ? (Color){bg.r + 30, bg.g + 30, bg.b + 30, bg.a} : bg;
+    uint8_t hr = bg.r > 225 ? 255 : bg.r + 30;
+    uint8_t hg = bg.g > 225 ? 255 : bg.g + 30;
+    uint8_t hb = bg.b > 225 ? 255 : bg.b + 30;
+    Color bg_draw = hover ? (Color){hr, hg, hb, bg.a} : bg;
     DrawRectangle(x, y, w, h, bg_draw);
     DrawRectangleLines(x, y, w, h, text_col);
     DrawText(label, x + 4, y + 3, 10, text_col);

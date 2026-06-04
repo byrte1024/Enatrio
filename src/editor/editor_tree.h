@@ -26,9 +26,12 @@ typedef struct {
     TempObjectReference selected;
     TempObjectReference collapsed[EDITORTREE_MAX_COLLAPSED];
     int collapsed_count;
+    EditorTreeEntry cached_entries[EDITORTREE_MAX_VISIBLE];
+    int cached_count;
+    int cache_dirty;
 } EditorTreeState;
 
-static EditorTreeState _tree_state = {0};
+static EditorTreeState _tree_state = {.cache_dirty = 1};
 
 static void EditorTree_SetRoot(TempObjectReference root) {
     _tree_state.root = root;
@@ -49,11 +52,13 @@ static void _editortree_toggle_collapsed(TempObjectReference obj) {
     for (int i = 0; i < _tree_state.collapsed_count; i++) {
         if (_tree_state.collapsed[i] == obj) {
             _tree_state.collapsed[i] = _tree_state.collapsed[--_tree_state.collapsed_count];
+            _tree_state.cache_dirty = 1;
             return;
         }
     }
     if (_tree_state.collapsed_count < EDITORTREE_MAX_COLLAPSED) {
         _tree_state.collapsed[_tree_state.collapsed_count++] = obj;
+        _tree_state.cache_dirty = 1;
     }
 }
 
@@ -78,6 +83,14 @@ static int _editortree_flatten(TempObjectReference node, int depth,
     return count;
 }
 
+static void _editortree_refresh_cache(void) {
+    if (!_tree_state.cache_dirty) return;
+    _tree_state.cached_count = _editortree_flatten(
+        _tree_state.root, 0, _tree_state.cached_entries,
+        EDITORTREE_MAX_VISIBLE, 0);
+    _tree_state.cache_dirty = 0;
+}
+
 static const char *_editortree_node_label(TempObjectReference obj, char *buf, int buf_size) {
     const char *name = GameObject_GetName(obj);
     const char *classname = CLASSID_TOSTRING(obj->cid);
@@ -100,6 +113,9 @@ static void EditorTree_Update(void) {
     }
     if (!_tree_state.visible) return;
 
+    _tree_state.cache_dirty = 1;
+    _editortree_refresh_cache();
+
     Vector2 mouse = GetMousePosition();
     if (mouse.x < EDITORTREE_PANEL_WIDTH) {
         float wheel = GetMouseWheelMove();
@@ -108,28 +124,26 @@ static void EditorTree_Update(void) {
     }
 
     if (IsMouseButtonPressed(MOUSE_LEFT_BUTTON) && mouse.x < EDITORTREE_PANEL_WIDTH) {
-        EditorTreeEntry entries[EDITORTREE_MAX_VISIBLE];
-        int count = _editortree_flatten(_tree_state.root, 0, entries,
-                                        EDITORTREE_MAX_VISIBLE, 0);
+        int count = _tree_state.cached_count;
 
         int handled = 0;
         for (int i = 0; i < count; i++) {
             float item_y = 24.0f + i * EDITORTREE_ITEM_HEIGHT - _tree_state.scroll_y;
             if (item_y < 20 || item_y > GetScreenHeight()) continue;
 
-            float btn_x = (float)(4 + entries[i].depth * EDITORTREE_INDENT);
+            float btn_x = (float)(4 + _tree_state.cached_entries[i].depth * EDITORTREE_INDENT);
             float btn_y = item_y + (EDITORTREE_ITEM_HEIGHT - EDITORTREE_BTN_SIZE) * 0.5f;
 
             if (mouse.x >= btn_x && mouse.x <= btn_x + EDITORTREE_BTN_SIZE &&
                 mouse.y >= btn_y && mouse.y <= btn_y + EDITORTREE_BTN_SIZE) {
-                _editortree_toggle_collapsed(entries[i].obj);
+                _editortree_toggle_collapsed(_tree_state.cached_entries[i].obj);
                 handled = 1;
                 break;
             }
 
             if (mouse.y >= item_y && mouse.y < item_y + EDITORTREE_ITEM_HEIGHT &&
                 mouse.x < EDITORTREE_PANEL_WIDTH) {
-                _tree_state.selected = entries[i].obj;
+                _tree_state.selected = _tree_state.cached_entries[i].obj;
                 handled = 1;
                 break;
             }
@@ -148,9 +162,8 @@ static void EditorTree_Draw(void) {
 
     DrawText("Scene Tree [F1]", 4, 4, EDITORTREE_FONT_SIZE, (Color){180, 180, 180, 255});
 
-    EditorTreeEntry entries[EDITORTREE_MAX_VISIBLE];
-    int count = _editortree_flatten(_tree_state.root, 0, entries,
-                                    EDITORTREE_MAX_VISIBLE, 0);
+    _editortree_refresh_cache();
+    int count = _tree_state.cached_count;
 
     float max_scroll = (float)(count * EDITORTREE_ITEM_HEIGHT) - (panel_h - 40);
     if (max_scroll < 0) max_scroll = 0;
@@ -162,8 +175,8 @@ static void EditorTree_Draw(void) {
         float item_y = 24.0f + i * EDITORTREE_ITEM_HEIGHT - _tree_state.scroll_y;
         if (item_y + EDITORTREE_ITEM_HEIGHT < 20 || item_y > panel_h) continue;
 
-        TempObjectReference obj = entries[i].obj;
-        int depth = entries[i].depth;
+        TempObjectReference obj = _tree_state.cached_entries[i].obj;
+        int depth = _tree_state.cached_entries[i].depth;
         int is_selected = (obj == _tree_state.selected);
 
         if (is_selected) {

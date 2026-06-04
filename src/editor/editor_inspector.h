@@ -7,6 +7,8 @@
 #include <string.h>
 #include "../system/object/Self.h"
 
+static void EditorTree_SelectObject(TempObjectReference obj);
+
 #define EDITORINSP_PANEL_WIDTH 300
 #define EDITORINSP_FONT_SIZE 10
 #define EDITORINSP_LINE_HEIGHT 16

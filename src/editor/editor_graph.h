@@ -8,6 +8,8 @@
 #include <math.h>
 #include "../system/object/Self.h"
 
+static void EditorTree_SelectObject(TempObjectReference obj);
+
 #define EDITORGRAPH_MAX_NODES 128
 #define EDITORGRAPH_MAX_EDGES 512
 #define EDITORGRAPH_NODE_W 110
@@ -25,6 +27,8 @@ typedef struct {
     int from;
     int to;
     char key[32];
+    int pair_idx;
+    int pair_total;
 } EditorGraphEdge;
 
 typedef struct {
@@ -164,6 +168,27 @@ static void EditorGraph_Build(TempObjectReference source) {
         _graph_state.nodes[i].x = -layer_width * 0.5f + idx_in_layer * col_spacing;
         _graph_state.nodes[i].y = (d - max_depth * 0.5f) * row_spacing;
     }
+
+    // Precompute edge pair indices for parallel edge rendering
+    for (int i = 0; i < _graph_state.edge_count; i++) {
+        EditorGraphEdge *e = &_graph_state.edges[i];
+        int pmin = e->from < e->to ? e->from : e->to;
+        int pmax = e->from < e->to ? e->to : e->from;
+        int idx_in_pair = 0;
+        int total = 0;
+        for (int j = 0; j < _graph_state.edge_count; j++) {
+            int jmin = _graph_state.edges[j].from < _graph_state.edges[j].to
+                       ? _graph_state.edges[j].from : _graph_state.edges[j].to;
+            int jmax = _graph_state.edges[j].from < _graph_state.edges[j].to
+                       ? _graph_state.edges[j].to : _graph_state.edges[j].from;
+            if (jmin == pmin && jmax == pmax) {
+                if (j < i) idx_in_pair++;
+                total++;
+            }
+        }
+        e->pair_idx = idx_in_pair;
+        e->pair_total = total;
+    }
 }
 
 // ============================================================
@@ -298,28 +323,15 @@ static void _editorgraph_arrow(float x1, float y1, float x2, float y2,
     Vector2 left = {px - dy * half, py + dx * half};
     Vector2 right = {px + dy * half, py - dx * half};
 
-    // DrawTriangle requires CCW; draw both windings to guarantee visibility
-    DrawTriangle(tip, left, right, color);
-    DrawTriangle(tip, right, left, color);
+    // Raylib requires CCW winding; compute cross product to pick correct order
+    float cross = (left.x - tip.x) * (right.y - tip.y) - (left.y - tip.y) * (right.x - tip.x);
+    if (cross > 0)
+        DrawTriangle(tip, left, right, color);
+    else
+        DrawTriangle(tip, right, left, color);
 }
 
-static void _editorgraph_node_label(TempObjectReference obj, char *buf, int buf_size) {
-    int is_go = 0;
-    ClassID walk = obj->cid;
-    while (!CLASSID_ISUNTYPED(walk)) {
-        if (walk == CID_GameObject) { is_go = 1; break; }
-        walk = ClassDefinitions[walk].parent_cid;
-    }
-
-    const char *name = is_go ? GameObject_GetName(obj) : NULL;
-    const char *cls = CLASSID_TOSTRING(obj->cid);
-
-    if (name && name[0] != '\0') {
-        snprintf(buf, buf_size, "%s", name);
-    } else {
-        snprintf(buf, buf_size, "(%s)", cls);
-    }
-}
+// Uses _editortree_node_label from editor_tree.h (included before this file)
 
 static void _editorgraph_edge_clip(float cx, float cy, float tx, float ty,
                                    float hw, float hh, float *ox, float *oy) {
@@ -456,25 +468,11 @@ static void EditorGraph_Draw(void) {
         float ax = cx + a->x * z, ay = cy + a->y * z;
         float bx = cx + b->x * z, by = cy + b->y * z;
 
-        // Count all edges (both directions) between this undirected pair,
-        // and this edge's index among them
         int pair_min = e->from < e->to ? e->from : e->to;
         int pair_max = e->from < e->to ? e->to : e->from;
-        int pair_total = 0;
-        int pair_idx = 0;
-        for (int j = 0; j < _graph_state.edge_count; j++) {
-            int jmin = _graph_state.edges[j].from < _graph_state.edges[j].to
-                       ? _graph_state.edges[j].from : _graph_state.edges[j].to;
-            int jmax = _graph_state.edges[j].from < _graph_state.edges[j].to
-                       ? _graph_state.edges[j].to : _graph_state.edges[j].from;
-            if (jmin == pair_min && jmax == pair_max) {
-                if (j < i) pair_idx++;
-                pair_total++;
-            }
-        }
+        int pair_idx = e->pair_idx;
+        int pair_total = e->pair_total;
 
-        // Perpendicular offset: compute consistently from min->max node
-        // so both directions use the same perpendicular
         EditorGraphNode *lo = &_graph_state.nodes[pair_min];
         EditorGraphNode *hi = &_graph_state.nodes[pair_max];
         float edx = (cx + hi->x * z) - (cx + lo->x * z);
@@ -518,7 +516,7 @@ static void EditorGraph_Draw(void) {
         DrawRectangleLines((int)npx, (int)npy, (int)nw, (int)nh, border);
 
         char label[64];
-        _editorgraph_node_label(n->obj, label, sizeof(label));
+        _editortree_node_label(n->obj, label, sizeof(label));
         DrawText(label, (int)npx + (int)(4 * z), (int)npy + (int)(4 * z),
                  font_main, (Color){220, 220, 220, 255});
 
