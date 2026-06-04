@@ -2,7 +2,20 @@
 
 #include "../system/tests.h"
 #include "../system/object/Self.h"
-#include "../classes/exploder.h"
+// Minimal no-parent class for registration tests
+#define TYPE GOTestStandalone
+BEGIN_CLASS(0xF002);
+DECLARE_MID(Poke, 0x01);
+MESSAGE_HANDLER_BEGIN(Poke)
+MESSAGE_HANDLER_END()
+CAN_RECEIVE_BEGIN()
+    CAN_RECEIVE_MID(Poke)
+CAN_RECEIVE_END()
+RECEIVE_MESSAGE_BEGIN()
+    RECEIVE_MESSAGE_ROUTE(Poke)
+RECEIVE_MESSAGE_END()
+CLASSDEF()
+#undef TYPE
 
 #define LINTNORE
 
@@ -180,7 +193,7 @@ static void _go_register_all(void) {
     RegisterClass(GameObject_ClassDef());
     RegisterClass(GOTestNode_ClassDef());
     RegisterClass(GOConsumer_ClassDef());
-    RegisterClass(Exploder_ClassDef());
+    RegisterClass(GOTestStandalone_ClassDef());
     RegisterClass(GOAdder_ClassDef());
     EndClassRegistrations();
 }

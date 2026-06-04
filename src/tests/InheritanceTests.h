@@ -158,10 +158,22 @@ CLASSDEF_INHERITS(Object)
 #undef TYPE
 
 // ============================================================
-// Include Exploder for the "no parent" test
+// Minimal no-parent class for testing
 // ============================================================
 
-#include "../classes/exploder.h"
+#define TYPE InhTestNoParent
+BEGIN_CLASS(0xF001);
+DECLARE_MID(Poke, 0x01);
+MESSAGE_HANDLER_BEGIN(Poke)
+MESSAGE_HANDLER_END()
+CAN_RECEIVE_BEGIN()
+    CAN_RECEIVE_MID(Poke)
+CAN_RECEIVE_END()
+RECEIVE_MESSAGE_BEGIN()
+    RECEIVE_MESSAGE_ROUTE(Poke)
+RECEIVE_MESSAGE_END()
+CLASSDEF()
+#undef TYPE
 
 // ============================================================
 // Registration helper
@@ -284,15 +296,15 @@ static void test_inherit_dispatch_walks_chain(void) {
 }
 
 static void test_inherit_no_parent_class(void) {
-    TEST("inherit: Exploder (no parent) handles own MIDs but not Object's");
+    TEST("inherit: no-parent class handles own MIDs but not Object's");
     BeginClassRegistrations();
     RegisterClass(Object_ClassDef());
-    RegisterClass(Exploder_ClassDef());
+    RegisterClass(InhTestNoParent_ClassDef());
     EndClassRegistrations();
 
-    ASSERT(CanDispatchMessage(MID_Exploder_ShimmiShimmiYea, CID_Exploder));
-    ASSERT(!CanDispatchMessage(MID_Object_SELF_Create, CID_Exploder));
-    ASSERT(!CanDispatchMessage(MID_Object_SELF_Destroy, CID_Exploder));
+    ASSERT(CanDispatchMessage(MID_InhTestNoParent_Poke, CID_InhTestNoParent));
+    ASSERT(!CanDispatchMessage(MID_Object_SELF_Create, CID_InhTestNoParent));
+    ASSERT(!CanDispatchMessage(MID_Object_SELF_Destroy, CID_InhTestNoParent));
 
     // Re-register all for remaining tests
     _inherit_register_all();

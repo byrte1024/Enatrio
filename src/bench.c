@@ -15,12 +15,56 @@
 #include "system/object/Self.h"
 
 #include "classes/window.h"
-#include "classes/exploder.h"
-#include "classes/scene_demo.h"
 
 // ============================================================
 // Benchmark-only classes
 // ============================================================
+
+// BenchGameObject: minimal GameObject subclass for spread benchmarks.
+#define TYPE BenchGameObject
+BEGIN_CLASS(0xB020);
+INHERITS(GameObject);
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
+    CALL_BASE();
+MESSAGE_HANDLER_END()
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
+    (void)Self;
+MESSAGE_HANDLER_END()
+SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)
+    (void)Self;
+MESSAGE_HANDLER_END()
+CAN_RECEIVE_BEGIN()
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Create)
+    SELF_CAN_RECEIVE_MID_EXTERN(Object, Destroy)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Update)
+    SELF_CAN_RECEIVE_MID_EXTERN(GameObject, Render)
+CAN_RECEIVE_END()
+RECEIVE_MESSAGE_BEGIN()
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Create)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(Object, Destroy)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Update)
+    SELF_RECEIVE_MESSAGE_ROUTE_EXTERN(GameObject, Render)
+RECEIVE_MESSAGE_END()
+CLASSDEF_INHERITS(GameObject)
+#undef TYPE
+
+// BenchStandalone: minimal class with no parent, for chain-walk tests.
+#define TYPE BenchStandalone
+BEGIN_CLASS(0xB021);
+DECLARE_MID(Ping, 0x01);
+MESSAGE_HANDLER_BEGIN(Ping)
+MESSAGE_HANDLER_END()
+CAN_RECEIVE_BEGIN()
+    CAN_RECEIVE_MID(Ping)
+CAN_RECEIVE_END()
+RECEIVE_MESSAGE_BEGIN()
+    RECEIVE_MESSAGE_ROUTE(Ping)
+RECEIVE_MESSAGE_END()
+CLASSDEF()
+#undef TYPE
 
 // BenchNoOp: minimal class, 1 MID, no-op handler.
 #define TYPE BenchNoOp
@@ -324,10 +368,8 @@ static void _register_bench_classes(void) {
     BeginClassRegistrations();
     RegisterClass(Object_ClassDef());
     RegisterClass(GameObject_ClassDef());
-    RegisterClass(BouncingBox_ClassDef());
-    RegisterClass(SpinningCircle_ClassDef());
-    RegisterClass(Player_ClassDef());
-    RegisterClass(Exploder_ClassDef());
+    RegisterClass(BenchGameObject_ClassDef());
+    RegisterClass(BenchStandalone_ClassDef());
     RegisterClass(Window_ClassDef());
     RegisterClass(BenchNoOp_ClassDef());
     RegisterClass(BenchSelfNoOp_ClassDef());
@@ -403,10 +445,10 @@ static void bench_dispatch(void) {
       (void)r;
       _pb("CanDispatchMessage (direct, 1 MID)", NB, b-a); }
 
-    // CanDispatchMessage: chain walk (BouncingBox -> GO -> Object)
+    // CanDispatchMessage: chain walk (BenchGameObject -> GO -> Object)
     { volatile int r;
       a=_now_ns();
-      for(int i=0;i<NB;i++) r = CanDispatchMessage(MID_Object_SELF_Create, CID_BouncingBox);
+      for(int i=0;i<NB;i++) r = CanDispatchMessage(MID_Object_SELF_Create, CID_BenchGameObject);
       b=_now_ns();
       (void)r;
       _pb("CanDispatchMessage (chain walk, 3 levels)", NB, b-a); }
@@ -650,9 +692,9 @@ static void bench_spread(void) {
       ObjectContainer_UnRef_External(&root); }
 
     // Spread to 10 children
-    { ExternalReference root = GameObject_CreateRootRef(CID_BouncingBox);
+    { ExternalReference root = GameObject_CreateRootRef(CID_BenchGameObject);
       TempObjectReference r = ObjectContainer_TempFrom(root);
-      for(int i=0;i<10;i++) GameObject_CreateChild(r, CID_BouncingBox);
+      for(int i=0;i<10;i++) GameObject_CreateChild(r, CID_BenchGameObject);
       a=_now_ns();
       for(int i=0;i<NB;i++){
           GAMEOBJECT_DISPATCH(r, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
@@ -661,9 +703,9 @@ static void bench_spread(void) {
       ObjectContainer_UnRef_External(&root); }
 
     // Spread to 100 children
-    { ExternalReference root = GameObject_CreateRootRef(CID_BouncingBox);
+    { ExternalReference root = GameObject_CreateRootRef(CID_BenchGameObject);
       TempObjectReference r = ObjectContainer_TempFrom(root);
-      for(int i=0;i<100;i++) GameObject_CreateChild(r, CID_BouncingBox);
+      for(int i=0;i<100;i++) GameObject_CreateChild(r, CID_BenchGameObject);
       a=_now_ns();
       for(int i=0;i<NB;i++){
           GAMEOBJECT_DISPATCH(r, MID_GameObject_SELF_Update, SPREAD_DOWN, {}, {});
@@ -672,13 +714,13 @@ static void bench_spread(void) {
       ObjectContainer_UnRef_External(&root); }
 
     // Spread to deep tree (3 levels, 5 children each = 1+5+25+125 = 156 nodes)
-    { ExternalReference root = GameObject_CreateRootRef(CID_BouncingBox);
+    { ExternalReference root = GameObject_CreateRootRef(CID_BenchGameObject);
       TempObjectReference r = ObjectContainer_TempFrom(root);
       for(int i=0;i<5;i++){
-          TempObjectReference mid = GameObject_CreateChild(r, CID_BouncingBox);
+          TempObjectReference mid = GameObject_CreateChild(r, CID_BenchGameObject);
           for(int j=0;j<5;j++){
-              TempObjectReference leaf = GameObject_CreateChild(mid, CID_BouncingBox);
-              for(int k=0;k<5;k++) GameObject_CreateChild(leaf, CID_BouncingBox);
+              TempObjectReference leaf = GameObject_CreateChild(mid, CID_BenchGameObject);
+              for(int k=0;k<5;k++) GameObject_CreateChild(leaf, CID_BenchGameObject);
           }
       }
       a=_now_ns();
@@ -689,9 +731,9 @@ static void bench_spread(void) {
       ObjectContainer_UnRef_External(&root); }
 
     // SPREAD_UP for comparison
-    { ExternalReference root = GameObject_CreateRootRef(CID_BouncingBox);
+    { ExternalReference root = GameObject_CreateRootRef(CID_BenchGameObject);
       TempObjectReference r = ObjectContainer_TempFrom(root);
-      for(int i=0;i<10;i++) GameObject_CreateChild(r, CID_BouncingBox);
+      for(int i=0;i<10;i++) GameObject_CreateChild(r, CID_BenchGameObject);
       a=_now_ns();
       for(int i=0;i<NB;i++){
           GAMEOBJECT_DISPATCH(r, MID_GameObject_SELF_Update, SPREAD_UP, {}, {});

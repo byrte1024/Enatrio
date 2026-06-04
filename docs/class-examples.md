@@ -1,13 +1,66 @@
+# Class Examples
+
+Example class implementations for reference. These were the original demo
+classes shipped with the engine.
+
+## Standalone Class (No Inheritance)
+
+A minimal class that does not inherit from Object or GameObject. It uses the
+raw class system directly: define a CID, declare MIDs, write handlers, wire
+up CanReceive/ReceiveMessage, and emit a ClassDef.
+
+```c
 #pragma once
 
-#include "../system/object/Self.h"
-#include <raylib.h>
-#include <math.h>
+#include "../system/class/Class.h"
 
-// ============================================================
-// Shared structs for packed Self values
-// ============================================================
+#define TYPE Exploder
 
+BEGIN_CLASS(0x22AB);
+
+DECLARE_MID(ShimmiShimmiYea, 0x01);
+
+MESSAGE_HANDLER_BEGIN(ShimmiShimmiYea)
+
+    MH_ExtractDeref(Strength, float);
+
+    if(Strength > 7){
+        LOG_INFO("Woah, calm down big boy");
+    }
+
+    if(Strength < 1){
+        LOG_INFO("Thats your best try?");
+    }
+
+    LOG_INFO("Strength: %f", Strength);
+
+MESSAGE_HANDLER_END()
+
+CAN_RECEIVE_BEGIN()
+    CAN_RECEIVE_MID(ShimmiShimmiYea)
+CAN_RECEIVE_END()
+
+RECEIVE_MESSAGE_BEGIN()
+    RECEIVE_MESSAGE_ROUTE(ShimmiShimmiYea)
+RECEIVE_MESSAGE_END()
+
+CLASSDEF()
+
+#undef TYPE
+```
+
+## GameObject Subclasses (Inheritance + Self System)
+
+These classes inherit from GameObject and use the Self value system for
+per-instance state. They override Update and Render via extern handler
+macros.
+
+### Shared Structs
+
+Pack multiple values into structs instead of storing each field separately.
+One hash lookup per struct vs N lookups per field.
+
+```c
 typedef struct {
     float x, y;
     float w, h;
@@ -17,10 +70,18 @@ typedef struct {
     uint8_t r, g, b, a;
 } Tint;
 
-// ============================================================
-// BouncingBox -- a rectangle that bounces horizontally
-// ============================================================
+typedef struct {
+    float cx, cy;
+    float orbit;
+    float angle;
+    float speed;
+    float size;
+} OrbiterState;
+```
 
+### BouncingBox -- rectangle that bounces horizontally
+
+```c
 #define TYPE BouncingBox
 
 BEGIN_CLASS(0x2200);
@@ -80,19 +141,11 @@ RECEIVE_MESSAGE_END()
 CLASSDEF_INHERITS(GameObject)
 
 #undef TYPE
+```
 
-// ============================================================
-// SpinningCircle -- a circle that orbits a center point
-// ============================================================
+### SpinningCircle -- circle that orbits a center point
 
-typedef struct {
-    float cx, cy;
-    float orbit;
-    float angle;
-    float speed;
-    float size;
-} OrbiterState;
-
+```c
 #define TYPE SpinningCircle
 
 BEGIN_CLASS(0x2201);
@@ -145,11 +198,11 @@ RECEIVE_MESSAGE_END()
 CLASSDEF_INHERITS(GameObject)
 
 #undef TYPE
+```
 
-// ============================================================
-// Player -- arrow-key controlled square
-// ============================================================
+### Player -- arrow-key controlled square
 
+```c
 #define TYPE Player
 
 BEGIN_CLASS(0x2202);
@@ -212,3 +265,38 @@ RECEIVE_MESSAGE_END()
 CLASSDEF_INHERITS(GameObject)
 
 #undef TYPE
+```
+
+## Usage in main.c
+
+```c
+// Register classes (parents first)
+BeginClassRegistrations();
+RegisterClass(Object_ClassDef());
+RegisterClass(GameObject_ClassDef());
+RegisterClass(BouncingBox_ClassDef());
+RegisterClass(SpinningCircle_ClassDef());
+RegisterClass(Player_ClassDef());
+EndClassRegistrations();
+
+// Build scene graph
+ExternalReference scene = GameObject_CreateRootRef(CID_GameObject);
+TempObjectReference root = ObjectContainer_TempFrom(scene);
+
+TempObjectReference box = GameObject_CreateChild(root, CID_BouncingBox);
+TempObjectReference player = GameObject_CreateChild(root, CID_Player);
+
+// Game loop
+while (!WindowShouldClose()) {
+    float dt = GetFrameTime();
+
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Update, SPREAD_DOWN, {
+        Payload_SetValue(msg, "dt", float, dt);
+    }, {});
+
+    // ... render ...
+    GAMEOBJECT_DISPATCH(root, MID_GameObject_SELF_Render, SPREAD_DOWN, {}, {});
+}
+
+ObjectContainer_UnRef_External(&scene);
+```
