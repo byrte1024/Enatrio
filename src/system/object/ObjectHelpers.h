@@ -94,6 +94,35 @@ static inline ExternalReference Object_CreateRef(ClassID cid) {
 }
 
 // ============================================================
+// Object_ value macros (for use outside SELF handlers)
+// ============================================================
+
+#define Object_SSetValue(obj, str_key, type, value) \
+    _Object_StoreValue((obj)->data->values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       &(type){value}, sizeof(type), (obj)->cid, SER_RAW, 0)
+
+#define Object_SSet(obj, str_key, value_ptr, value_size) \
+    _Object_StoreValue((obj)->data->values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       value_ptr, value_size, (obj)->cid, SER_RAW, 0)
+
+#define Object_SSetStruct(obj, str_key, type, ...) do { \
+    type _oss = __VA_ARGS__; \
+    _Object_StoreValue((obj)->data->values, str_key, _UNSAFE_STRLITERAL_LEN(str_key), \
+                       &_oss, sizeof(type), (obj)->cid, SER_RAW, 0); \
+} while (0)
+
+#define Object_SGet(obj, str_key, type) \
+    ((type*)_Object_GetValueData((obj)->data->values, str_key, _UNSAFE_STRLITERAL_LEN(str_key)))
+
+#define Object_SGetDeref(obj, str_key, type) ({ \
+    void *_ogd_ptr = _Object_GetValueData((obj)->data->values, str_key, _UNSAFE_STRLITERAL_LEN(str_key)); \
+    _ogd_ptr ? *(type*)_ogd_ptr : (type){0}; \
+})
+
+#define Object_SHas(obj, str_key) \
+    _Object_HasValue((obj)->data->values, str_key, _UNSAFE_STRLITERAL_LEN(str_key))
+
+// ============================================================
 // Self_ value macros (for use inside SELF handlers)
 // ============================================================
 

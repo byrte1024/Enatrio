@@ -241,8 +241,6 @@ DECLARE_SINGLETON(Window)
 // ============================================================
 
 static void Window_BeginFrame(void) {
-    BeginDrawing();
-    ClearBackground(BLACK);
     if (_Window_singleton == NULL) return;
     TempObjectReference w = GET_SINGLETON(Window);
     if (!w || !w->data) return;
@@ -253,46 +251,53 @@ static void Window_BeginFrame(void) {
     }
 }
 
-static void Window_EndFrame(void) {
-    if (_Window_singleton == NULL) { EndDrawing(); return; }
+static void Window_BlitVirtualScreen(void) {
+    if (_Window_singleton == NULL) return;
     TempObjectReference w = GET_SINGLETON(Window);
-    if (!w || !w->data) { EndDrawing(); return; }
+    if (!w || !w->data) return;
 
-    // Keep rw/rh in sync with actual screen size (window is resizable)
     int _cur_rw = GetScreenWidth();
     int _cur_rh = GetScreenHeight();
     _Object_StoreValue(w->data->values, "rw", 2, &_cur_rw, sizeof(int), CID_Window, SER_SKIP, 0);
     _Object_StoreValue(w->data->values, "rh", 2, &_cur_rh, sizeof(int), CID_Window, SER_SKIP, 0);
 
     int *vflag = (int *)_Object_GetValueData(w->data->values, "has_virtual", 11);
-    if (vflag && *vflag) {
-        EndTextureMode();
+    if (!vflag || !*vflag) return;
 
-        RenderTexture2D *vtex = (RenderTexture2D *)_Object_GetValueData(w->data->values, "vtex", 4);
-        int *vw = (int *)_Object_GetValueData(w->data->values, "vw", 2);
-        int *vh = (int *)_Object_GetValueData(w->data->values, "vh", 2);
-        int *interp = (int *)_Object_GetValueData(w->data->values, "interp", 6);
-        int *aspect = (int *)_Object_GetValueData(w->data->values, "aspect", 6);
+    RenderTexture2D *vtex = (RenderTexture2D *)_Object_GetValueData(w->data->values, "vtex", 4);
+    int *vw = (int *)_Object_GetValueData(w->data->values, "vw", 2);
+    int *vh = (int *)_Object_GetValueData(w->data->values, "vh", 2);
+    int *interp = (int *)_Object_GetValueData(w->data->values, "interp", 6);
+    int *aspect = (int *)_Object_GetValueData(w->data->values, "aspect", 6);
 
-        if (!vtex || !vw || !vh || !interp || !aspect) { EndDrawing(); return; }
+    if (!vtex || !vw || !vh || !interp || !aspect) return;
 
-        SetTextureFilter(vtex->texture, *interp);
+    SetTextureFilter(vtex->texture, *interp);
 
-        Rectangle src = { 0, 0, (float)*vw, -(float)*vh };
-        Rectangle dst;
+    Rectangle src = { 0, 0, (float)*vw, -(float)*vh };
+    Rectangle dst;
 
-        if (*aspect == WINDOW_ASPECT_STRETCH) {
-            dst = (Rectangle){ 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
-        } else {
-            float sw = (float)GetScreenWidth();
-            float sh = (float)GetScreenHeight();
-            float scale = (sw / *vw < sh / *vh) ? sw / *vw : sh / *vh;
-            float dw = *vw * scale;
-            float dh = *vh * scale;
-            dst = (Rectangle){ (sw - dw) * 0.5f, (sh - dh) * 0.5f, dw, dh };
-        }
-
-        DrawTexturePro(vtex->texture, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
+    if (*aspect == WINDOW_ASPECT_STRETCH) {
+        dst = (Rectangle){ 0, 0, (float)GetScreenWidth(), (float)GetScreenHeight() };
+    } else {
+        float sw = (float)GetScreenWidth();
+        float sh = (float)GetScreenHeight();
+        float scale = (sw / *vw < sh / *vh) ? sw / *vw : sh / *vh;
+        float dw = *vw * scale;
+        float dh = *vh * scale;
+        dst = (Rectangle){ (sw - dw) * 0.5f, (sh - dh) * 0.5f, dw, dh };
     }
-    EndDrawing();
+
+    DrawTexturePro(vtex->texture, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
+}
+
+static void Window_EndFrame(void) {
+    if (_Window_singleton == NULL) return;
+    TempObjectReference w = GET_SINGLETON(Window);
+    if (!w || !w->data) return;
+
+    int *vflag = (int *)_Object_GetValueData(w->data->values, "has_virtual", 11);
+    if (vflag && *vflag) EndTextureMode();
+
+    Window_BlitVirtualScreen();
 }

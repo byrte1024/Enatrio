@@ -169,42 +169,17 @@ static void _log_file_callback(int logLevel, const char *text, va_list args) {
     }
 }
 
-static const char *_app_local_path(void); // forward declaration needed by _build_log_path
+static const char *_app_local_path(void); // forward declaration
+static int AppPath_EnsureSubdir(const char *subdir); // forward declaration
+static int AppPath_BuildTimestamped(char *out, int out_size,
+                                    const char *subdir, const char *prefix,
+                                    const char *ext); // forward declaration
 
 static const char *_build_log_path(const char *prefix) {
-    static char logpath[512] = {0};
-    const char *base = _app_local_path();
-    if (!base || !base[0]) {
+    static char logpath[640] = {0};
+    AppPath_EnsureSubdir("Logs");
+    if (AppPath_BuildTimestamped(logpath, sizeof(logpath), "Logs", prefix, "log") != 0) {
         snprintf(logpath, sizeof(logpath), "%s.log", prefix);
-        return logpath;
-    }
-
-    char logsdir[512];
-#ifdef _WIN32
-    snprintf(logsdir, sizeof(logsdir), "%s\\Logs", base);
-#else
-    snprintf(logsdir, sizeof(logsdir), "%s/Logs", base);
-#endif
-    if (!DirectoryExists(logsdir)) MakeDirectory(logsdir);
-
-    time_t now = time(NULL);
-    struct tm *t = localtime(&now);
-    if (t) {
-        snprintf(logpath, sizeof(logpath),
-#ifdef _WIN32
-            "%s\\Logs\\%s_%04d%02d%02d_%02d%02d%02d.log",
-#else
-            "%s/Logs/%s_%04d%02d%02d_%02d%02d%02d.log",
-#endif
-            base, prefix,
-            t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-            t->tm_hour, t->tm_min, t->tm_sec);
-    } else {
-#ifdef _WIN32
-        snprintf(logpath, sizeof(logpath), "%s\\Logs\\%s.log", base, prefix);
-#else
-        snprintf(logpath, sizeof(logpath), "%s/Logs/%s.log", base, prefix);
-#endif
     }
     return logpath;
 }
@@ -249,4 +224,50 @@ static const char *_app_local_path(void) {
     }
 #endif
     return path;
+}
+
+// ============================================================
+// Path construction helpers
+// ============================================================
+
+#ifdef _WIN32
+#define PATH_SEP "\\"
+#define PATH_SEP_CHAR '\\'
+#else
+#define PATH_SEP "/"
+#define PATH_SEP_CHAR '/'
+#endif
+
+static int AppPath_Build(char *out, int out_size, const char *subdir, const char *filename) {
+    const char *base = _app_local_path();
+    if (!base || !base[0]) return -1;
+    if (filename) {
+        snprintf(out, out_size, "%s" PATH_SEP "%s" PATH_SEP "%s", base, subdir, filename);
+    } else {
+        snprintf(out, out_size, "%s" PATH_SEP "%s", base, subdir);
+    }
+    return 0;
+}
+
+static int AppPath_BuildTimestamped(char *out, int out_size,
+                                    const char *subdir, const char *prefix,
+                                    const char *ext) {
+    const char *base = _app_local_path();
+    if (!base || !base[0]) return -1;
+    time_t now = time(NULL);
+    struct tm *t = localtime(&now);
+    if (!t) return -1;
+    snprintf(out, out_size,
+             "%s" PATH_SEP "%s" PATH_SEP "%s_%04d%02d%02d_%02d%02d%02d.%s",
+             base, subdir, prefix,
+             t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
+             t->tm_hour, t->tm_min, t->tm_sec, ext);
+    return 0;
+}
+
+static int AppPath_EnsureSubdir(const char *subdir) {
+    char dir[512];
+    if (AppPath_Build(dir, sizeof(dir), subdir, NULL) != 0) return -1;
+    if (!DirectoryExists(dir)) MakeDirectory(dir);
+    return 0;
 }
