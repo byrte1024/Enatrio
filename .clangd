@@ -3,6 +3,7 @@ CompileFlags:
     - -Wall
     - -Wextra
     - --std=gnu23
+    - -Ilib/tinyfiledialogs
 
 Diagnostics:
   UnusedIncludes: Strict

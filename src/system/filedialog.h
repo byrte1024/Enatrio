@@ -2,6 +2,7 @@
 
 #ifdef DEBUG
 
+#include <string.h>
 #include <tinyfiledialogs.h>
 #include "utils.h"
 
