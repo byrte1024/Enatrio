@@ -11,9 +11,9 @@ INHERITS(GameObject);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
-    Self_SetStructTransient("rect", Rect, {20.0f, 40.0f, 12.0f, 12.0f});
-    Self_SetTransient("dx", float, 30.0f);
-    Self_SetStructTransient("tint", Tint, {230, 40, 40, 255});
+    Self_SetStruct("rect", Rect, {20.0f, 40.0f, 12.0f, 12.0f});
+    Self_SetValue("dx", float, 30.0f);
+    Self_SetStruct("tint", Tint, {230, 40, 40, 255});
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
@@ -34,8 +34,8 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
         if (rect.x + rect.w > 160.0f) rect.x = 160.0f - rect.w;
         if (rect.x < 0.0f) rect.x = 0.0f;
     }
-    Self_SetStructTransient("rect", Rect, rect);
-    Self_SetTransient("dx", float, dx);
+    Self_SetStruct("rect", Rect, rect);
+    Self_SetValue("dx", float, dx);
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)

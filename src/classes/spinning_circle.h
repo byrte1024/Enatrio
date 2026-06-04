@@ -12,8 +12,8 @@ INHERITS(GameObject);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
-    Self_SetStructTransient("orb", OrbiterState, {80.0f, 60.0f, 25.0f, 0.0f, 2.0f, 6.0f});
-    Self_SetStructTransient("tint", Tint, {40, 80, 230, 255});
+    Self_SetStruct("orb", OrbiterState, {80.0f, 60.0f, 25.0f, 0.0f, 2.0f, 6.0f});
+    Self_SetStruct("tint", Tint, {40, 80, 230, 255});
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
@@ -27,7 +27,7 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
 
     OrbiterState orb = Self_GetDeref("orb", OrbiterState);
     orb.angle += orb.speed * dt;
-    Self_SetStructTransient("orb", OrbiterState, orb);
+    Self_SetStruct("orb", OrbiterState, orb);
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)

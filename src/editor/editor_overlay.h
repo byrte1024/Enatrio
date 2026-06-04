@@ -4,9 +4,8 @@
 
 #include <raylib.h>
 #include <stdio.h>
-#include <time.h>
-#include <sys/stat.h>
 #include "../system/object/Serialization.h"
+#include "../system/filedialog.h"
 
 #define EDITOR_HISTORY_SECONDS 20
 #define EDITOR_HISTORY_MAX_SAMPLES (EDITOR_HISTORY_SECONDS * 240)
@@ -25,6 +24,8 @@ typedef struct {
     double pending_editor_us;
     int paused;
     int dump_requested;
+    int load_requested;
+    char load_path[512];
     char dump_status[128];
     double dump_status_time;
 } EditorOverlayState;
@@ -63,6 +64,15 @@ static int EditorOverlay_DumpRequested(void) {
     return 0;
 }
 
+static int EditorOverlay_LoadRequested(const char **out_path) {
+    if (_editor_state.load_requested) {
+        _editor_state.load_requested = 0;
+        if (out_path) *out_path = _editor_state.load_path;
+        return 1;
+    }
+    return 0;
+}
+
 static void EditorOverlay_DumpScene(ExternalReference *scene_ref) {
     if (!scene_ref || !*scene_ref) {
         snprintf(_editor_state.dump_status, sizeof(_editor_state.dump_status),
@@ -71,66 +81,28 @@ static void EditorOverlay_DumpScene(ExternalReference *scene_ref) {
         return;
     }
 
-    const char *base = _app_local_path();
-    if (!base || !base[0]) {
+    AppPath_EnsureSubdir("Dumps");
+
+    char filename[640];
+    if (AppPath_BuildTimestamped(filename, sizeof(filename), "Dumps", "root", "cob") != 0) {
         snprintf(_editor_state.dump_status, sizeof(_editor_state.dump_status),
                  "Dump failed: no local path");
         _editor_state.dump_status_time = GetTime();
         return;
     }
 
-    char dump_dir[512];
-#ifdef _WIN32
-    snprintf(dump_dir, sizeof(dump_dir), "%s\\Dumps", base);
-#else
-    snprintf(dump_dir, sizeof(dump_dir), "%s/Dumps", base);
-#endif
-#ifdef _WIN32
-    mkdir(dump_dir);
-#else
-    mkdir(dump_dir, 0755);
-#endif
-
-    time_t now = time(NULL);
-    struct tm *t = localtime(&now);
-    char filename[640];
-#ifdef _WIN32
-    snprintf(filename, sizeof(filename),
-             "%s\\%04d%02d%02d_%02d%02d%02d_root.cob",
-             dump_dir,
-#else
-    snprintf(filename, sizeof(filename),
-             "%s/%04d%02d%02d_%02d%02d%02d_root.cob",
-             dump_dir,
-#endif
-             t->tm_year + 1900, t->tm_mon + 1, t->tm_mday,
-             t->tm_hour, t->tm_min, t->tm_sec);
-
-    ByteStream *stream = Object_Serialize(scene_ref, 1);
-    if (!stream) {
+    int result = Object_SaveToFile(filename, scene_ref, 1);
+    if (result != 0) {
         snprintf(_editor_state.dump_status, sizeof(_editor_state.dump_status),
-                 "Dump failed: serialization error");
+                 "Dump failed: %s", filename);
         _editor_state.dump_status_time = GetTime();
         return;
     }
-
-    FILE *f = fopen(filename, "wb");
-    if (!f) {
-        snprintf(_editor_state.dump_status, sizeof(_editor_state.dump_status),
-                 "Dump failed: cannot write %s", filename);
-        _editor_state.dump_status_time = GetTime();
-        ByteStream_Destroy(stream);
-        return;
-    }
-
-    fwrite(stream->data, 1, stream->length, f);
-    fclose(f);
 
     snprintf(_editor_state.dump_status, sizeof(_editor_state.dump_status),
-             "Dumped %u bytes -> %s", stream->length, filename);
+             "Dumped -> %s", filename);
     _editor_state.dump_status_time = GetTime();
-    LOG_INFO("Scene dump: %s (%u bytes)", filename, stream->cursor);
-    ByteStream_Destroy(stream);
+    LOG_INFO("Scene dump: %s", filename);
 }
 
 static void _editor_draw_graph(EditorTimingRing *ring, int x, int y,
@@ -218,10 +190,24 @@ static void EditorOverlay_Draw(void) {
                                 (Color){140, 180, 255, 255})) {
             _editor_state.dump_requested = 1;
         }
+
+        if (_editor_state.paused) {
+            if (_editor_draw_button(text_x + 120, base_y, 56, btn_h, "Load .cob",
+                                    (Color){100, 60, 40, 220},
+                                    (Color){255, 180, 120, 255})) {
+                const char *path = FileDialog_Open(
+                    "Load Scene (.cob)", "Dumps", "*.cob", "ECOB files");
+                if (path) {
+                    snprintf(_editor_state.load_path, sizeof(_editor_state.load_path), "%s", path);
+                    _editor_state.load_requested = 1;
+                }
+            }
+        }
     }
 
     if (_editor_state.paused) {
-        DrawText("PAUSED", text_x + 122, base_y + 4, 10, (Color){255, 80, 80, 255});
+        int paused_x = _editor_state.paused ? text_x + 180 : text_x + 122;
+        DrawText("PAUSED", paused_x, base_y + 4, 10, (Color){255, 80, 80, 255});
     }
 
     // Dump status message (show for 5 seconds)

@@ -11,8 +11,8 @@ INHERITS(GameObject);
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     CALL_BASE();
-    Self_SetStructTransient("rect", Rect, {72.0f, 52.0f, 8.0f, 8.0f});
-    Self_SetTransient("speed", float, 50.0f);
+    Self_SetStruct("rect", Rect, {72.0f, 52.0f, 8.0f, 8.0f});
+    Self_SetValue("speed", float, 50.0f);
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Destroy)
@@ -37,7 +37,7 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Update)
     if (rect.x + rect.w > 160.0f) rect.x = 160.0f - rect.w;
     if (rect.y + rect.h > 120.0f) rect.y = 120.0f - rect.h;
 
-    Self_SetStructTransient("rect", Rect, rect);
+    Self_SetStruct("rect", Rect, rect);
 MESSAGE_HANDLER_END()
 
 SELF_MESSAGE_HANDLER_BEGIN_EXTERN(GameObject, Render)

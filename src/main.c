@@ -55,14 +55,8 @@ int main() {
 
   TempObjectReference box2 = GameObject_CreateChild(root, CID_BouncingBox);
   GameObject_SetName(box2, "GreenBox");
-  {
-      Rect rect = {60.0f, 70.0f, 10.0f, 10.0f};
-      Tint tint = {40, 200, 40, 255};
-      _Object_StoreValue(box2->data->values, "rect", 4,
-                         &rect, sizeof(Rect), CID_BouncingBox, SER_SKIP, 0);
-      _Object_StoreValue(box2->data->values, "tint", 4,
-                         &tint, sizeof(Tint), CID_BouncingBox, SER_SKIP, 0);
-  }
+  Object_SSetStruct(box2, "rect", Rect, {60.0f, 70.0f, 10.0f, 10.0f});
+  Object_SSetStruct(box2, "tint", Tint, {40, 200, 40, 255});
 
   TempObjectReference player = GameObject_CreateChild(root, CID_Player);
   GameObject_SetName(player, "Player");
@@ -75,14 +69,8 @@ int main() {
 
   TempObjectReference c2 = GameObject_CreateChild(orbiters, CID_SpinningCircle);
   GameObject_SetName(c2, "GreenOrbit");
-  {
-      OrbiterState orb = {80.0f, 60.0f, 15.0f, 0.0f, -3.5f, 4.0f};
-      Tint tint = {40, 200, 80, 255};
-      _Object_StoreValue(c2->data->values, "orb", 3,
-                         &orb, sizeof(OrbiterState), CID_SpinningCircle, SER_SKIP, 0);
-      _Object_StoreValue(c2->data->values, "tint", 4,
-                         &tint, sizeof(Tint), CID_SpinningCircle, SER_SKIP, 0);
-  }
+  Object_SSetStruct(c2, "orb", OrbiterState, {80.0f, 60.0f, 15.0f, 0.0f, -3.5f, 4.0f});
+  Object_SSetStruct(c2, "tint", Tint, {40, 200, 80, 255});
 
 #ifdef DEBUG
   EditorTree_SetRoot(root);
@@ -142,6 +130,24 @@ int main() {
     EditorOverlay_Draw();
     if (EditorOverlay_DumpRequested()) {
         EditorOverlay_DumpScene(&scene);
+    }
+    {
+        const char *load_path = NULL;
+        if (EditorOverlay_LoadRequested(&load_path)) {
+            int loaded_count = 0;
+            ExternalReference *loaded = Object_LoadFromFile(load_path, &loaded_count);
+            if (loaded && loaded_count > 0 && loaded[0]) {
+                ObjectContainer_UnRef_External(&scene);
+                Object_GarbageCollect();
+                scene = loaded[0];
+                root = ObjectContainer_TempFrom(scene);
+                EditorTree_SetRoot(root);
+                LOG_INFO("Scene loaded from %s (%d roots)", load_path, loaded_count);
+            } else {
+                LOG_ERROR("Failed to load scene from %s", load_path);
+            }
+            free(loaded);
+        }
     }
     EditorTree_Draw();
     EditorInspector_Draw(EditorTree_GetSelected());
