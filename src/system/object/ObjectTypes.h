@@ -81,6 +81,25 @@ typedef struct {
 
 #undef LINTNORE
 
+// Split-pattern SELF handler macros
+#define SELF_MESSAGE_HANDLER_DECL(msgname) \
+    MESSAGE_HANDLER_DECL(BAT2(SELF_, msgname))
+
+#define SELF_MESSAGE_HANDLER_DECL_EXTERN(classname, msgname) \
+    MESSAGE_HANDLER_DECL_EXTERN(classname, BAT2(SELF_, msgname))
+
+#define LINTNORE
+#define SELF_MESSAGE_HANDLER_BEGIN_SPLIT(msgname) \
+    MESSAGE_HANDLER_BEGIN_SPLIT(BAT2(SELF_, msgname)) \
+    MH_Require(Self); \
+    TempObjectReference Self = MH_GetDeref(Self, TempObjectReference);
+
+#define SELF_MESSAGE_HANDLER_BEGIN_EXTERN_SPLIT(classname, msgname) \
+    MESSAGE_HANDLER_BEGIN_EXTERN_SPLIT(classname, BAT2(SELF_, msgname)) \
+    MH_Require(Self); \
+    TempObjectReference Self = MH_GetDeref(Self, TempObjectReference);
+#undef LINTNORE
+
 #define SELF_CAN_RECEIVE_MID(msgname) \
     CAN_RECEIVE_MID(BAT2(SELF_, msgname))
 

@@ -13,6 +13,7 @@
 #include "classes/player.h"
 
 #ifdef DEBUG
+#include "system/object/Serialization.h"
 #include "editor/editor_overlay.h"
 #include "editor/editor_tree.h"
 #include "editor/editor_inspector.h"

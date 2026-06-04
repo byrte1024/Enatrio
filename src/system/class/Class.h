@@ -115,12 +115,12 @@ typedef struct ClassDefinition {
 } ClassDefinition;
 
 
-inline ClassDefinition ClassDefinitions[CLASSID_MAX + 1] = { 0 };
+extern ClassDefinition ClassDefinitions[CLASSID_MAX + 1];
 
 // Gate prevents late registration from corrupting running dispatch --
 // once classes are locked in, the dispatch table is stable and safe to
 // call from any context without synchronization.
-inline bool ClassRegistrationsOpen = false;
+extern bool ClassRegistrationsOpen;
 
 #define CLASSID_ISUNTYPED(c) (c) == ((uint16_t)(0x0000))
 #define CLASSID_ISREGISTERED(c) (ClassDefinitions[(c)].cid == c)
@@ -274,9 +274,9 @@ static inline MessagePayload* DispatchMessage(MessagePayload* payload) {
 // subsequent calls are allocation-free.
 // ============================================================
 
-inline UnsafeVariedHashMap **_payload_pool = NULL;
-inline uint32_t _payload_pool_count = 0;
-inline uint32_t _payload_pool_capacity = 0;
+extern UnsafeVariedHashMap **_payload_pool;
+extern uint32_t _payload_pool_count;
+extern uint32_t _payload_pool_capacity;
 
 static inline UnsafeVariedHashMap *_PayloadPool_Acquire(void) {
     if (_payload_pool_count > 0) {
@@ -376,7 +376,7 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 #define BEGIN_CLASS(id) \
     enum { BAT2(_CLASSID_RESERVED_, id) = (id) }; \
     enum { BAT2(CID_, TYPE) = (ClassID)(id) }; \
-    inline const char BAT2(CLASSNAME_, TYPE)[CLASS_MAXNAMELENGTH] = BSTR(TYPE)
+    static const char BAT2(CLASSNAME_, TYPE)[CLASS_MAXNAMELENGTH] = BSTR(TYPE)
 
 #define INHERITS(parentname) \
     static const ClassID BAT2(_INHERITS_FROM_, TYPE) = BAT2(CID_, parentname)
@@ -557,6 +557,55 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 } while (0)
 
 #define IGNORE_BASE() ((void)0)
+
+// ============================================================
+// Split-pattern macros (.h/.c separation)
+// ============================================================
+
+// Handler forward declarations (for .h files)
+#define MESSAGE_HANDLER_DECL(handlername) \
+    void BAT4(MESSAGE_HANDLER_, TYPE, _, handlername)(MessagePayload* payload);
+
+#define MESSAGE_HANDLER_DECL_EXTERN(classname, handlername) \
+    void BAT6(MESSAGE_HANDLER_, TYPE, _, classname, _, handlername)(MessagePayload* payload);
+
+// Handler definitions -- non-static (for .c files)
+#define MESSAGE_HANDLER_BEGIN_SPLIT(handlername) \
+    void BAT4(MESSAGE_HANDLER_, TYPE, _, handlername)(MessagePayload* payload) { \
+        payload->result = MESSAGE_RESULT_SUCCESS;
+
+#define MESSAGE_HANDLER_BEGIN_EXTERN_SPLIT(classname, handlername) \
+    void BAT6(MESSAGE_HANDLER_, TYPE, _, classname, _, handlername)(MessagePayload* payload) { \
+        payload->result = MESSAGE_RESULT_SUCCESS;
+
+// ClassDef declaration (for .h files)
+#define CLASSDEF_DECL() \
+    ClassDefinition BAT2(TYPE, _ClassDef)(void);
+
+#define CLASSDEF_DECL_INHERITS(parentname) CLASSDEF_DECL()
+
+// ClassDef definition -- non-static (for .c files)
+#define CLASSDEF_SPLIT() \
+    ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
+        ClassDefinition _cd = {0}; \
+        _cd.cid = BAT2(CID_, TYPE); \
+        strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
+        _cd.parent_cid = CID_Untyped; \
+        _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
+        _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
+        return _cd; \
+    }
+
+#define CLASSDEF_SPLIT_INHERITS(parentname) \
+    ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
+        ClassDefinition _cd = {0}; \
+        _cd.cid = BAT2(CID_, TYPE); \
+        strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
+        _cd.parent_cid = BAT2(CID_, parentname); \
+        _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
+        _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
+        return _cd; \
+    }
 
 #undef LINTNORE
 
