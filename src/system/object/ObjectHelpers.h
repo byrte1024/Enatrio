@@ -279,45 +279,7 @@ static inline TempObjectReference Object_GetRef(TempObjectReference obj, const c
 
 #define LINTNORE
 
-#define DECLARE_SINGLETON(classname) \
-    static ExternalReference _##classname##_singleton = NULL; \
-    \
-    static ExternalReference classname##_CreateSingleton(void) { \
-        if (_##classname##_singleton != NULL) { \
-            LOG_ERROR(#classname " singleton already exists"); \
-            return _##classname##_singleton; \
-        } \
-        _##classname##_singleton = Object_CreateRef(CID_##classname); \
-        if (_##classname##_singleton == NULL) { \
-            LOG_ERROR("Failed to create " #classname " singleton"); \
-        } \
-        return _##classname##_singleton; \
-    } \
-    \
-    static void classname##_DestroySingleton(void) { \
-        if (_##classname##_singleton == NULL) { \
-            LOG_ERROR("No " #classname " singleton to destroy"); \
-            return; \
-        } \
-        ObjectContainer_UnRef_External(&_##classname##_singleton); \
-    } \
-    \
-    static int classname##_HasSingleton(void) { \
-        return _##classname##_singleton != NULL; \
-    }
-
-#define GET_SINGLETON(classname) \
-    (ObjectContainer_TempFrom(_##classname##_singleton))
-
-#define DECLARE_SINGLETON_DECL(classname) \
-    extern ExternalReference _##classname##_singleton; \
-    ExternalReference classname##_CreateSingleton(void); \
-    void classname##_DestroySingleton(void); \
-    int classname##_HasSingleton(void);
-
-#define DECLARE_SINGLETON_IMPL(classname) \
-    ExternalReference _##classname##_singleton = NULL; \
-    \
+#define _SINGLETON_BODY(classname) \
     ExternalReference classname##_CreateSingleton(void) { \
         if (_##classname##_singleton != NULL) { \
             LOG_ERROR(#classname " singleton already exists"); \
@@ -341,5 +303,22 @@ static inline TempObjectReference Object_GetRef(TempObjectReference obj, const c
     int classname##_HasSingleton(void) { \
         return _##classname##_singleton != NULL; \
     }
+
+#define DECLARE_SINGLETON(classname) \
+    static ExternalReference _##classname##_singleton = NULL; \
+    static _SINGLETON_BODY(classname)
+
+#define GET_SINGLETON(classname) \
+    (ObjectContainer_TempFrom(_##classname##_singleton))
+
+#define DECLARE_SINGLETON_DECL(classname) \
+    extern ExternalReference _##classname##_singleton; \
+    ExternalReference classname##_CreateSingleton(void); \
+    void classname##_DestroySingleton(void); \
+    int classname##_HasSingleton(void);
+
+#define DECLARE_SINGLETON_IMPL(classname) \
+    ExternalReference _##classname##_singleton = NULL; \
+    _SINGLETON_BODY(classname)
 
 #undef LINTNORE

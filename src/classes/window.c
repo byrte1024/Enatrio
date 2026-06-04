@@ -151,9 +151,9 @@ SELF_MESSAGE_HANDLER_BEGIN_SPLIT(SetVirtualSize)
     _Object_StoreValue(Self_Values, "vtex", 4,
                        &vtex, sizeof(RenderTexture2D),
                        CID_Window, SER_SKIP, 0);
-    Self_SetValue("vw", int, VirtualWidth);
-    Self_SetValue("vh", int, VirtualHeight);
-    Self_SetValue("has_virtual", int, 1);
+    Self_SetTransient("vw", int, VirtualWidth);
+    Self_SetTransient("vh", int, VirtualHeight);
+    Self_SetTransient("has_virtual", int, 1);
     LOG_INFO("Virtual screen set to %dx%d", VirtualWidth, VirtualHeight);
 MESSAGE_HANDLER_END()
 

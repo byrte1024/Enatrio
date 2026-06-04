@@ -312,7 +312,7 @@ def check_handler_without_declare_mid(filepath, source, source_bytes, tree, igno
             with open(header_path, "r") as hf:
                 sources_to_scan.append(hf.read())
         except FileNotFoundError:
-            pass
+            print(f"  Note: R070 could not find sibling header {header_path}", file=sys.stderr)
 
     for src in sources_to_scan:
         for i, line in enumerate(src.split("\n"), 1):

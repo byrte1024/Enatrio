@@ -522,27 +522,24 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 // ClassDef builder macro
 // ============================================================
 
-// Expands to a static function Exploder_ClassDef() (with #define TYPE Exploder).
-#define CLASSDEF() \
-    static ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
+#define _CLASSDEF_BODY(parent_cid_expr) \
         ClassDefinition _cd = {0}; \
         _cd.cid = BAT2(CID_, TYPE); \
         strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
-        _cd.parent_cid = CID_Untyped; \
+        _cd.parent_cid = parent_cid_expr; \
         _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
         _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
-        return _cd; \
+        return _cd;
+
+// Expands to a static function Exploder_ClassDef() (with #define TYPE Exploder).
+#define CLASSDEF() \
+    static ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
+        _CLASSDEF_BODY(CID_Untyped) \
     }
 
 #define CLASSDEF_INHERITS(parentname) \
     static ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
-        ClassDefinition _cd = {0}; \
-        _cd.cid = BAT2(CID_, TYPE); \
-        strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
-        _cd.parent_cid = BAT2(CID_, parentname); \
-        _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
-        _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
-        return _cd; \
+        _CLASSDEF_BODY(BAT2(CID_, parentname)) \
     }
 
 #define CALL_BASE() do { \
@@ -585,26 +582,9 @@ static inline MessagePayload PreparePayload(ClassID cid_target, MessageID mid) {
 #define CLASSDEF_DECL_INHERITS(parentname) CLASSDEF_DECL()
 
 // ClassDef definition -- non-static (for .c files)
-#define CLASSDEF_SPLIT() \
-    ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
-        ClassDefinition _cd = {0}; \
-        _cd.cid = BAT2(CID_, TYPE); \
-        strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
-        _cd.parent_cid = CID_Untyped; \
-        _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
-        _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
-        return _cd; \
-    }
-
 #define CLASSDEF_SPLIT_INHERITS(parentname) \
     ClassDefinition BAT2(TYPE, _ClassDef)(void) { \
-        ClassDefinition _cd = {0}; \
-        _cd.cid = BAT2(CID_, TYPE); \
-        strncpy(_cd.classname, BAT2(CLASSNAME_, TYPE), CLASS_MAXNAMELENGTH - 1); \
-        _cd.parent_cid = BAT2(CID_, parentname); \
-        _cd.CanReceiveMID = BAT2(TYPE, _CanReceiveMID); \
-        _cd.ReceiveMessage = BAT2(TYPE, _ReceiveMessage); \
-        return _cd; \
+        _CLASSDEF_BODY(BAT2(CID_, parentname)) \
     }
 
 #undef LINTNORE

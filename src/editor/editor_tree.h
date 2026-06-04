@@ -1,7 +1,6 @@
 #pragma once
 #ifdef DEBUG
 
-#include <raylib.h>
 #include "../system/object/ObjectTypes.h"
 
 void EditorTree_SetRoot(TempObjectReference root);
