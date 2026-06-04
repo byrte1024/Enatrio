@@ -241,8 +241,6 @@ DECLARE_SINGLETON(Window)
 // ============================================================
 
 static void Window_BeginFrame(void) {
-    BeginDrawing();
-    ClearBackground(BLACK);
     if (_Window_singleton == NULL) return;
     TempObjectReference w = GET_SINGLETON(Window);
     if (!w || !w->data) return;
@@ -254,9 +252,9 @@ static void Window_BeginFrame(void) {
 }
 
 static void Window_EndFrame(void) {
-    if (_Window_singleton == NULL) { EndDrawing(); return; }
+    if (_Window_singleton == NULL) return;
     TempObjectReference w = GET_SINGLETON(Window);
-    if (!w || !w->data) { EndDrawing(); return; }
+    if (!w || !w->data) return;
 
     // Keep rw/rh in sync with actual screen size (window is resizable)
     int _cur_rw = GetScreenWidth();
@@ -274,7 +272,7 @@ static void Window_EndFrame(void) {
         int *interp = (int *)_Object_GetValueData(w->data->values, "interp", 6);
         int *aspect = (int *)_Object_GetValueData(w->data->values, "aspect", 6);
 
-        if (!vtex || !vw || !vh || !interp || !aspect) { EndDrawing(); return; }
+        if (!vtex || !vw || !vh || !interp || !aspect) return;
 
         SetTextureFilter(vtex->texture, *interp);
 
@@ -294,5 +292,4 @@ static void Window_EndFrame(void) {
 
         DrawTexturePro(vtex->texture, src, dst, (Vector2){0, 0}, 0.0f, WHITE);
     }
-    EndDrawing();
 }

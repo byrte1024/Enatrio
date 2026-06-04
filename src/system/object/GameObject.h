@@ -9,6 +9,7 @@
 #define SPREAD_DOWN 0
 #define SPREAD_UP   1
 #define _GO_CONSUMED_KEY "__go_consumed__"
+#define GO_NAME_MAX 64
 
 // SPREAD_CONSUME stops propagation into the current node's subtree.
 // Only effective during SPREAD_DOWN. In SPREAD_UP, children are
@@ -130,6 +131,10 @@ SELF_MESSAGE_HANDLER_BEGIN_EXTERN(Object, Create)
     Self_SetValue("active", int, 1);
     Self_SetValue("child_count", int, 0);
     Self_SetValue("priority", int, 0);
+    {
+        char _go_name[GO_NAME_MAX] = {0};
+        Self_Set("name", _go_name, GO_NAME_MAX);
+    }
 MESSAGE_HANDLER_END()
 
 // ============================================================
@@ -412,6 +417,18 @@ static inline ExternalReference GameObject_CreateChildRef(TempObjectReference pa
         Payload_SetValue(msg, "child", TempObjectReference, child);
     }, {});
     return ref;
+}
+
+static inline void GameObject_SetName(TempObjectReference obj, const char *name) {
+    if (obj == NULL || obj->data == NULL) return;
+    char buf[GO_NAME_MAX] = {0};
+    strncpy(buf, name, GO_NAME_MAX - 1);
+    _Object_StoreValue(obj->data->values, "name", 4, buf, GO_NAME_MAX, obj->cid, SER_RAW, 0);
+}
+
+static inline const char *GameObject_GetName(TempObjectReference obj) {
+    if (obj == NULL || obj->data == NULL) return NULL;
+    return (const char *)_Object_GetValueData(obj->data->values, "name", 4);
 }
 
 // ============================================================
