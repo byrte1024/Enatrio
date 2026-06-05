@@ -6,7 +6,7 @@
 // Global object registry
 // ============================================================
 
-inline UnsafeArray *_object_registry = NULL;
+extern UnsafeArray *_object_registry;
 
 static void _ObjectRegistry_Init(void) {
     if (_object_registry == NULL) {

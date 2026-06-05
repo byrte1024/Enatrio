@@ -17,8 +17,8 @@ typedef struct {
     bool registered;
 } SerEntry;
 
-inline SerEntry _ser_registry[SER_MAX_ID] = {0};
-inline bool _ser_initialized = false;
+extern SerEntry _ser_registry[SER_MAX_ID];
+extern bool _ser_initialized;
 
 // ============================================================
 // Built-in serialize/deserialize functions

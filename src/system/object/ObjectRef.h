@@ -72,10 +72,10 @@ static inline void ObjectContainer_UnRef_Internal(ObjectReference* ref) {
 // Guard against infinite recursion: SELF_Destroy handlers may drop
 // references that trigger further GC. Without this flag, the GC
 // would re-enter itself and corrupt its own worklist/visited sets.
-inline bool _gc_running = false;
+extern bool _gc_running;
 
 #define _GC_MAX_RECURSION_DEPTH 256
-inline int _gc_recursion_depth = 0;
+extern int _gc_recursion_depth;
 
 static int _gc_is_visited(UnsafeArray *visited, TempObjectReference target) {
     for (uint32_t i = 0; i < visited->count; i++) {

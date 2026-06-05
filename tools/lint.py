@@ -134,10 +134,10 @@ def check_non_ascii(filepath, source, source_bytes, tree, ignore, errors):
 def check_balanced_macros(filepath, source, source_bytes, tree, ignore, errors):
     """R010-R012: Balanced macro pairs via text search."""
     pairs = [
-        ("R010", r"\bMESSAGE_HANDLER_BEGIN\s*\(|"
-                 r"\bMESSAGE_HANDLER_BEGIN_EXTERN\s*\(|"
-                 r"\bSELF_MESSAGE_HANDLER_BEGIN\s*\(|"
-                 r"\bSELF_MESSAGE_HANDLER_BEGIN_EXTERN\s*\(",
+        ("R010", r"\bMESSAGE_HANDLER_BEGIN(?:_SPLIT)?\s*\(|"
+                 r"\bMESSAGE_HANDLER_BEGIN_EXTERN(?:_SPLIT)?\s*\(|"
+                 r"\bSELF_MESSAGE_HANDLER_BEGIN(?:_SPLIT)?\s*\(|"
+                 r"\bSELF_MESSAGE_HANDLER_BEGIN_EXTERN(?:_SPLIT)?\s*\(",
          r"\bMESSAGE_HANDLER_END\s*\(",
          "MESSAGE_HANDLER_BEGIN", "MESSAGE_HANDLER_END"),
         ("R011", r"\bCAN_RECEIVE_BEGIN\s*\(",
@@ -191,7 +191,7 @@ def check_type_define_undef(filepath, source, source_bytes, tree, ignore, errors
 def check_begin_class_classdef(filepath, source, source_bytes, tree, ignore, errors):
     """R021: BEGIN_CLASS must have CLASSDEF() or CLASSDEF_INHERITS() in same file."""
     begin_lines = find_text_occurrences(source, r"\bBEGIN_CLASS\s*\(")
-    classdef_lines = find_text_occurrences(source, r"\bCLASSDEF(?:_INHERITS)?\s*\(")
+    classdef_lines = find_text_occurrences(source, r"\bCLASSDEF(?:_INHERITS|_DECL|_DECL_INHERITS|_SPLIT|_SPLIT_INHERITS)?\s*\(")
 
     begin_lines = [l for l in begin_lines if not is_ignored(l, ignore)]
     classdef_lines = [l for l in classdef_lines if not is_ignored(l, ignore)]
@@ -295,24 +295,39 @@ def check_printf_usage(filepath, source, source_bytes, tree, ignore, errors):
 
 
 def check_handler_without_declare_mid(filepath, source, source_bytes, tree, ignore, errors):
-    """R070: MESSAGE_HANDLER_BEGIN(X) should have a DECLARE_MID(X) in the same file."""
+    """R070: MESSAGE_HANDLER_BEGIN(X) should have a DECLARE_MID(X) in the same file or its .h."""
     declared = set()
     handled = {}  # mid -> line
 
     pat_declare = re.compile(r"\bDECLARE_MID\s*\(\s*(\w+)\s*(?:,\s*[^)]+)?\)")
     pat_declare_self = re.compile(r"\bDECLARE_SELF_MID\s*\(\s*(\w+)\s*(?:,\s*[^)]+)?\)")
-    pat_handler = re.compile(r"\bMESSAGE_HANDLER_BEGIN\s*\(\s*(\w+)\s*\)")
-    pat_handler_self = re.compile(r"\bSELF_MESSAGE_HANDLER_BEGIN\s*\(\s*(\w+)\s*\)")
+    pat_handler = re.compile(r"\bMESSAGE_HANDLER_BEGIN(?:_SPLIT)?\s*\(\s*(\w+)\s*\)")
+    pat_handler_self = re.compile(r"\bSELF_MESSAGE_HANDLER_BEGIN(?:_SPLIT)?\s*\(\s*(\w+)\s*\)")
+
+    # For split .c files, also scan the corresponding .h for DECLARE_MID
+    sources_to_scan = [source]
+    if filepath.endswith(".c"):
+        header_path = filepath[:-2] + ".h"
+        try:
+            with open(header_path, "r") as hf:
+                sources_to_scan.append(hf.read())
+        except FileNotFoundError:
+            print(f"  Note: R070 could not find sibling header {header_path}", file=sys.stderr)
+
+    for src in sources_to_scan:
+        for i, line in enumerate(src.split("\n"), 1):
+            if line.strip().startswith("#define"):
+                continue
+            for m in pat_declare.finditer(line):
+                declared.add(m.group(1))
+            for m in pat_declare_self.finditer(line):
+                declared.add("SELF_" + m.group(1))
 
     for i, line in enumerate(source.split("\n"), 1):
         if is_ignored(i, ignore):
             continue
         if line.strip().startswith("#define"):
             continue
-        for m in pat_declare.finditer(line):
-            declared.add(m.group(1))
-        for m in pat_declare_self.finditer(line):
-            declared.add("SELF_" + m.group(1))
         for m in pat_handler.finditer(line):
             handled[m.group(1)] = i
         for m in pat_handler_self.finditer(line):
@@ -620,7 +635,7 @@ def _find_extern_handler_bodies(source, ignore):
     handlers = []
     lines = source.split("\n")
     pat_begin = re.compile(
-        r"\b(?:MESSAGE_HANDLER_BEGIN_EXTERN|SELF_MESSAGE_HANDLER_BEGIN_EXTERN)"
+        r"\b(?:MESSAGE_HANDLER_BEGIN_EXTERN(?:_SPLIT)?|SELF_MESSAGE_HANDLER_BEGIN_EXTERN(?:_SPLIT)?)"
         r"\s*\(\s*(\w+)\s*,\s*(\w+)\s*\)")
     pat_end = re.compile(r"\bMESSAGE_HANDLER_END\s*\(")
     i = 0
@@ -689,7 +704,7 @@ def check_extern_without_inherit(filepath, source, source_bytes, tree, ignore, e
     if not classes:
         return
     pat_extern = re.compile(
-        r"\b(?:MESSAGE_HANDLER_BEGIN_EXTERN|SELF_MESSAGE_HANDLER_BEGIN_EXTERN)"
+        r"\b(?:MESSAGE_HANDLER_BEGIN_EXTERN(?:_SPLIT)?|SELF_MESSAGE_HANDLER_BEGIN_EXTERN(?:_SPLIT)?)"
         r"\s*\(\s*(\w+)\s*,")
     for i, line in enumerate(source.split("\n"), 1):
         if is_ignored(i, ignore):
